@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/isai/outlook-mcp/internal/config"
-	"github.com/isai/outlook-mcp/internal/domain"
-	"github.com/isai/outlook-mcp/internal/security"
+	"github.com/jinkp/outlook-go-mcp/internal/config"
+	"github.com/jinkp/outlook-go-mcp/internal/domain"
+	"github.com/jinkp/outlook-go-mcp/internal/security"
 	libmcp "github.com/mark3labs/mcp-go/mcp"
 )
 

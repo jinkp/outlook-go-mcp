@@ -3,7 +3,7 @@ package security
 import (
 	"fmt"
 
-	"github.com/isai/outlook-mcp/internal/config"
+	"github.com/jinkp/outlook-go-mcp/internal/config"
 )
 
 type PolicyGate interface {

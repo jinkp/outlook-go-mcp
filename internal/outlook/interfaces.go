@@ -1,6 +1,6 @@
 package outlook
 
-import "github.com/isai/outlook-mcp/internal/domain"
+import "github.com/jinkp/outlook-go-mcp/internal/domain"
 
 type MailStore = domain.MailStore
 

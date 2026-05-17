@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/isai/outlook-mcp/internal/domain"
+	"github.com/jinkp/outlook-go-mcp/internal/domain"
 )
 
 var (

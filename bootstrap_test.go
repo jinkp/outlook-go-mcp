@@ -21,7 +21,7 @@ func TestProjectBootstrapArtifacts(t *testing.T) {
 		t.Fatalf("read go.mod: %v", err)
 	}
 
-	if !strings.Contains(string(modBytes), "module github.com/isai/outlook-mcp") {
+	if !strings.Contains(string(modBytes), "module github.com/jinkp/outlook-go-mcp") {
 		t.Fatalf("go.mod does not declare expected module path")
 	}
 

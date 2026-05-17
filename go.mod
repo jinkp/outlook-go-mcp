@@ -1,4 +1,4 @@
-module github.com/isai/outlook-mcp
+module github.com/jinkp/outlook-go-mcp
 
 go 1.25.5
 
