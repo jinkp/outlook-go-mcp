@@ -1,0 +1,52 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    # Windows runner: outlook-mcp targets Windows COM automation.
+    # Cross-compilation from ubuntu is fine since we only ship Windows binaries,
+    # but using ubuntu keeps it cheap and consistent with bbkit.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download Go modules
+        run: go mod download
+
+      - name: Build release binaries
+        run: make build-all
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          files: |
+            bin/*
+          body: |
+            ## Install
+
+            **Windows (PowerShell)**
+            ```powershell
+            irm https://raw.githubusercontent.com/jinkp/outlook-go-mcp/main/install.ps1 | iex
+            ```
+
+            After install, register in your AI client:
+            ```
+            outlook-mcp setup opencode
+            outlook-mcp setup claude
+            ```

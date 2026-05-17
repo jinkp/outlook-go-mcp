@@ -6,6 +6,7 @@ import (
 
 	libmcp "github.com/mark3labs/mcp-go/mcp"
 	serverpkg "github.com/mark3labs/mcp-go/server"
+	"github.com/jinkp/outlook-go-mcp/internal/version"
 )
 
 type Server struct {
@@ -16,7 +17,7 @@ type Server struct {
 func NewServer(handlers *Handlers) *Server {
 	return &Server{
 		handlers:  handlers,
-		mcpServer: serverpkg.NewMCPServer("outlook-go-mcp", "0.1.0", serverpkg.WithToolCapabilities(false)),
+		mcpServer: serverpkg.NewMCPServer("outlook-go-mcp", version.Version, serverpkg.WithToolCapabilities(false)),
 	}
 }
 
