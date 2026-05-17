@@ -8,7 +8,9 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"os/exec"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -87,9 +89,11 @@ func main() {
 
 // newRootCmd builds the Cobra command tree:
 //
-//	outlook-mcp mcp            — start the MCP stdio server (default when no subcommand)
+//	outlook-mcp mcp            — start the MCP stdio server
+//	outlook-mcp tui            — interactive TUI menu
 //	outlook-mcp setup opencode — register in opencode.json via TUI wizard
 //	outlook-mcp setup claude   — register in Claude Code config via TUI wizard
+//	outlook-mcp setup config   — generate config.yaml via TUI wizard
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "outlook-mcp",
@@ -103,6 +107,7 @@ func newRootCmd() *cobra.Command {
 	}
 
 	root.AddCommand(newMCPCmd())
+	root.AddCommand(newTUICmd())
 	root.AddCommand(newSetupCmd())
 
 	return root
@@ -135,7 +140,52 @@ func newMCPCmd() *cobra.Command {
 	return cmd
 }
 
-// newSetupCmd returns the `outlook-mcp setup` command with opencode and claude subcommands.
+// newTUICmd returns the `outlook-mcp tui` subcommand — interactive menu.
+func newTUICmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "tui",
+		Short: "Interactive TUI menu for outlook-mcp setup",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			model := tui.NewMenuModel()
+			p := tea.NewProgram(model, tea.WithAltScreen())
+
+			finalModel, err := p.Run()
+			if err != nil {
+				return err
+			}
+
+			result := finalModel.(tui.MenuModel).Result()
+			if result.Cancelled {
+				return nil
+			}
+
+			return runSubcommand(result.Command)
+		},
+	}
+}
+
+// runSubcommand re-invokes the current binary with the given subcommand args.
+// This mirrors bbkit's pattern: the TUI dispatches to CLI subcommands.
+func runSubcommand(command string) error {
+	parts := strings.Fields(command)
+	if len(parts) == 0 {
+		return nil
+	}
+
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("cannot find outlook-mcp executable: %w", err)
+	}
+
+	c := exec.Command(exe, parts...)
+	c.Stdin = os.Stdin
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+
+	return c.Run()
+}
+
+// newSetupCmd returns the `outlook-mcp setup` command with opencode, claude and config subcommands.
 func newSetupCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "setup",
@@ -147,6 +197,7 @@ func newSetupCmd() *cobra.Command {
 
 	cmd.AddCommand(newSetupOpenCodeCmd())
 	cmd.AddCommand(newSetupClaudeCmd())
+	cmd.AddCommand(newSetupConfigCmd())
 	return cmd
 }
 
@@ -217,6 +268,43 @@ func newSetupClaudeCmd() *cobra.Command {
 
 			if m.Done() {
 				fmt.Fprintln(cmd.OutOrStdout(), "Claude Code config updated successfully.")
+			}
+
+			return nil
+		},
+	}
+}
+
+func newSetupConfigCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "config",
+		Short: "Generate config.yaml from the built-in template",
+		Long:  "Launches a TUI wizard to create a config.yaml with your attachment path.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			wizard := tui.NewConfigWizardModel()
+			program := tea.NewProgram(wizard)
+
+			finalModel, err := program.Run()
+			if err != nil {
+				return err
+			}
+
+			m, ok := finalModel.(tui.ConfigWizardModel)
+			if !ok {
+				return fmt.Errorf("setup config did not complete correctly")
+			}
+
+			if m.Cancelled() {
+				fmt.Fprintln(cmd.OutOrStdout(), "Setup config cancelled.")
+				return nil
+			}
+
+			if m.Error() {
+				return fmt.Errorf("%s", m.ErrorMessage())
+			}
+
+			if m.Done() {
+				fmt.Fprintln(cmd.OutOrStdout(), "config.yaml written to: "+m.ConfigPath())
 			}
 
 			return nil
