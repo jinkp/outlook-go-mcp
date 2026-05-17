@@ -4,8 +4,8 @@
 *.dll
 *.so
 *.dylib
-outlook-mcp
-outlook-mcp*
+/outlook-mcp
+/outlook-mcp.exe
 
 # Internal AI agent scaffolding (personal dev tooling, not for public repos)
 .atl/
