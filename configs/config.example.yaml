@@ -1,0 +1,34 @@
+# Outlook profile selection.
+# Use "default" for the primary configured Outlook profile.
+outlook:
+  profile: "default"
+
+# Security switches for write-capable operations.
+# All write actions are denied unless explicitly enabled.
+security:
+  # Reserved for future phases. Sending mail is not supported in the MVP.
+  allow_send_email: false
+  # Allows the create_draft MCP tool to save drafts in Outlook.
+  allow_create_draft: false
+  # Allows the create_event MCP tool to save simple calendar events in Outlook.
+  allow_create_event: false
+  # Reserved for future attachment download support. Unused in the MVP.
+  allow_save_attachments: false
+
+# Storage paths used by the server.
+paths:
+  # Absolute Windows path reserved for attachment export workflows.
+  # Required by config validation even though MVP tools do not write attachments yet.
+  # This remains required in the MVP even though attachment download is not implemented yet.
+  attachment_dir: "C:\\OutlookMCP\\attachments"
+
+# Structured logging configuration.
+logging:
+  # Supported levels: debug, info, warn, error.
+  level: "info"
+
+# Runtime safety limits.
+limits:
+  # Maximum items returned by list/search tools when the caller asks for more.
+  # Allowed range: 1..500.
+  max_results: 50

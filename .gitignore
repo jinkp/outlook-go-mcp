@@ -1,0 +1,35 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+outlook-mcp
+outlook-mcp*
+
+# Internal AI agent scaffolding (personal dev tooling, not for public repos)
+.atl/
+
+# Coverage profiles
+cover
+coverage
+config_cover
+mcp_cover
+*.out
+*.coverprofile
+
+# Build artifacts
+/dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Keep files are tracked (directory placeholders)
+!.keep
