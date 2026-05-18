@@ -6,21 +6,29 @@ import (
 	libmcp "github.com/mark3labs/mcp-go/mcp"
 )
 
-func TestToolDefinitionsRegistersExactSevenTools(t *testing.T) {
+func TestToolDefinitionsRegistersExactFifteenTools(t *testing.T) {
 	tools := ToolDefinitions()
 
-	if len(tools) != 7 {
-		t.Fatalf("len(ToolDefinitions()) = %d, want 7", len(tools))
+	if len(tools) != 15 {
+		t.Fatalf("len(ToolDefinitions()) = %d, want 15", len(tools))
 	}
 
 	wantNames := map[string]struct{}{
-		"search_emails":    {},
-		"get_email":        {},
-		"list_attachments": {},
-		"create_draft":     {},
-		"list_events":      {},
-		"get_event":        {},
-		"create_event":     {},
+		"search_emails":       {},
+		"get_email":           {},
+		"list_attachments":    {},
+		"create_draft":        {},
+		"list_events":         {},
+		"get_event":           {},
+		"create_event":        {},
+		"reply_draft":         {},
+		"forward_draft":       {},
+		"mark_read":           {},
+		"flag_email":          {},
+		"move_email":          {},
+		"list_folders":        {},
+		"download_attachment": {},
+		"delete_email":        {},
 	}
 
 	for _, tool := range tools {
@@ -34,9 +42,6 @@ func TestToolDefinitionsRegistersExactSevenTools(t *testing.T) {
 		t.Fatalf("missing tool registrations: %#v", wantNames)
 	}
 
-	if findToolByName(tools, "download_attachment") != nil {
-		t.Fatal("download_attachment must not be registered")
-	}
 	if findToolByName(tools, "send_email") != nil {
 		t.Fatal("send_email must not be registered")
 	}
@@ -52,6 +57,14 @@ func TestToolDefinitionsMarkRequiredParams(t *testing.T) {
 	assertRequiredParams(t, findToolByName(tools, "list_events"), "start", "end")
 	assertRequiredParams(t, findToolByName(tools, "get_event"), "id")
 	assertRequiredParams(t, findToolByName(tools, "create_event"), "title", "start", "end")
+	assertRequiredParams(t, findToolByName(tools, "reply_draft"), "email_id", "body")
+	assertRequiredParams(t, findToolByName(tools, "forward_draft"), "email_id", "to")
+	assertRequiredParams(t, findToolByName(tools, "mark_read"), "email_id", "read")
+	assertRequiredParams(t, findToolByName(tools, "flag_email"), "email_id", "flagged")
+	assertRequiredParams(t, findToolByName(tools, "move_email"), "email_id", "folder")
+	assertRequiredParams(t, findToolByName(tools, "list_folders"))
+	assertRequiredParams(t, findToolByName(tools, "download_attachment"), "email_id", "attachment_id", "dest_dir")
+	assertRequiredParams(t, findToolByName(tools, "delete_email"), "email_id")
 }
 
 func TestToolDefinitionsApplySchemaBoundsAndDefaults(t *testing.T) {

@@ -164,6 +164,196 @@ func TestNormalizeMailSearchMaxResultsDefaultsToTwenty(t *testing.T) {
 	}
 }
 
+func TestReplyDraftReturnsErrNotConnectedWhenExecutorNotStarted(t *testing.T) {
+	store := &outlookMailStore{executor: &fakeCOMExecutor{started: false}}
+
+	_, err := store.ReplyDraft(context.Background(), ReplyDraftParams{EmailID: "id-1", Body: "body"})
+
+	if !errors.Is(err, ErrNotConnected) {
+		t.Fatalf("ReplyDraft() error = %v, want %v", err, ErrNotConnected)
+	}
+}
+
+func TestReplyDraftReturnsErrInvalidParamsWhenEmailIDEmpty(t *testing.T) {
+	store := &outlookMailStore{executor: &fakeCOMExecutor{started: true}}
+
+	_, err := store.ReplyDraft(context.Background(), ReplyDraftParams{EmailID: "", Body: "body"})
+
+	if !errors.Is(err, ErrInvalidParams) {
+		t.Fatalf("ReplyDraft() error = %v, want %v", err, ErrInvalidParams)
+	}
+}
+
+func TestReplyDraftReturnsErrInvalidParamsWhenBodyEmpty(t *testing.T) {
+	store := &outlookMailStore{executor: &fakeCOMExecutor{started: true}}
+
+	_, err := store.ReplyDraft(context.Background(), ReplyDraftParams{EmailID: "id-1", Body: "   "})
+
+	if !errors.Is(err, ErrInvalidParams) {
+		t.Fatalf("ReplyDraft() error = %v, want %v", err, ErrInvalidParams)
+	}
+}
+
+func TestForwardDraftReturnsErrNotConnectedWhenExecutorNotStarted(t *testing.T) {
+	store := &outlookMailStore{executor: &fakeCOMExecutor{started: false}}
+
+	_, err := store.ForwardDraft(context.Background(), ForwardDraftParams{EmailID: "id-1", To: []string{"a@b.com"}})
+
+	if !errors.Is(err, ErrNotConnected) {
+		t.Fatalf("ForwardDraft() error = %v, want %v", err, ErrNotConnected)
+	}
+}
+
+func TestForwardDraftReturnsErrInvalidParamsWhenEmailIDEmpty(t *testing.T) {
+	store := &outlookMailStore{executor: &fakeCOMExecutor{started: true}}
+
+	_, err := store.ForwardDraft(context.Background(), ForwardDraftParams{EmailID: "", To: []string{"a@b.com"}})
+
+	if !errors.Is(err, ErrInvalidParams) {
+		t.Fatalf("ForwardDraft() error = %v, want %v", err, ErrInvalidParams)
+	}
+}
+
+func TestForwardDraftReturnsErrInvalidParamsWhenToEmpty(t *testing.T) {
+	store := &outlookMailStore{executor: &fakeCOMExecutor{started: true}}
+
+	_, err := store.ForwardDraft(context.Background(), ForwardDraftParams{EmailID: "id-1", To: []string{}})
+
+	if !errors.Is(err, ErrInvalidParams) {
+		t.Fatalf("ForwardDraft() error = %v, want %v", err, ErrInvalidParams)
+	}
+}
+
+func TestMarkReadReturnsErrNotConnectedWhenExecutorNotStarted(t *testing.T) {
+	store := &outlookMailStore{executor: &fakeCOMExecutor{started: false}}
+
+	err := store.MarkRead(context.Background(), MarkReadParams{EmailID: "id-1", Read: true})
+
+	if !errors.Is(err, ErrNotConnected) {
+		t.Fatalf("MarkRead() error = %v, want %v", err, ErrNotConnected)
+	}
+}
+
+func TestMarkReadReturnsErrInvalidParamsWhenEmailIDEmpty(t *testing.T) {
+	store := &outlookMailStore{executor: &fakeCOMExecutor{started: true}}
+
+	err := store.MarkRead(context.Background(), MarkReadParams{EmailID: "  ", Read: true})
+
+	if !errors.Is(err, ErrInvalidParams) {
+		t.Fatalf("MarkRead() error = %v, want %v", err, ErrInvalidParams)
+	}
+}
+
+func TestFlagEmailReturnsErrNotConnectedWhenExecutorNotStarted(t *testing.T) {
+	store := &outlookMailStore{executor: &fakeCOMExecutor{started: false}}
+
+	err := store.FlagEmail(context.Background(), FlagEmailParams{EmailID: "id-1", Flagged: true})
+
+	if !errors.Is(err, ErrNotConnected) {
+		t.Fatalf("FlagEmail() error = %v, want %v", err, ErrNotConnected)
+	}
+}
+
+func TestFlagEmailReturnsErrInvalidParamsWhenEmailIDEmpty(t *testing.T) {
+	store := &outlookMailStore{executor: &fakeCOMExecutor{started: true}}
+
+	err := store.FlagEmail(context.Background(), FlagEmailParams{EmailID: "", Flagged: true})
+
+	if !errors.Is(err, ErrInvalidParams) {
+		t.Fatalf("FlagEmail() error = %v, want %v", err, ErrInvalidParams)
+	}
+}
+
+func TestMoveEmailReturnsErrNotConnectedWhenExecutorNotStarted(t *testing.T) {
+	store := &outlookMailStore{executor: &fakeCOMExecutor{started: false}}
+
+	err := store.MoveEmail(context.Background(), MoveEmailParams{EmailID: "id-1", Folder: "Archive"})
+
+	if !errors.Is(err, ErrNotConnected) {
+		t.Fatalf("MoveEmail() error = %v, want %v", err, ErrNotConnected)
+	}
+}
+
+func TestMoveEmailReturnsErrInvalidParamsWhenEmailIDEmpty(t *testing.T) {
+	store := &outlookMailStore{executor: &fakeCOMExecutor{started: true}}
+
+	err := store.MoveEmail(context.Background(), MoveEmailParams{EmailID: "", Folder: "Archive"})
+
+	if !errors.Is(err, ErrInvalidParams) {
+		t.Fatalf("MoveEmail() error = %v, want %v", err, ErrInvalidParams)
+	}
+}
+
+func TestMoveEmailReturnsErrInvalidParamsWhenFolderEmpty(t *testing.T) {
+	store := &outlookMailStore{executor: &fakeCOMExecutor{started: true}}
+
+	err := store.MoveEmail(context.Background(), MoveEmailParams{EmailID: "id-1", Folder: "  "})
+
+	if !errors.Is(err, ErrInvalidParams) {
+		t.Fatalf("MoveEmail() error = %v, want %v", err, ErrInvalidParams)
+	}
+}
+
+func TestListFoldersReturnsErrNotConnectedWhenExecutorNotStarted(t *testing.T) {
+	store := &outlookMailStore{executor: &fakeCOMExecutor{started: false}}
+
+	_, err := store.ListFolders(context.Background())
+
+	if !errors.Is(err, ErrNotConnected) {
+		t.Fatalf("ListFolders() error = %v, want %v", err, ErrNotConnected)
+	}
+}
+
+func TestDownloadAttachmentReturnsErrNotConnectedWhenExecutorNotStarted(t *testing.T) {
+	store := &outlookMailStore{executor: &fakeCOMExecutor{started: false}}
+
+	_, err := store.DownloadAttachment(context.Background(), DownloadAttachmentParams{EmailID: "id-1", AttachmentID: "1", DestDir: "C:\\tmp"})
+
+	if !errors.Is(err, ErrNotConnected) {
+		t.Fatalf("DownloadAttachment() error = %v, want %v", err, ErrNotConnected)
+	}
+}
+
+func TestDownloadAttachmentReturnsErrInvalidParamsWhenEmailIDEmpty(t *testing.T) {
+	store := &outlookMailStore{executor: &fakeCOMExecutor{started: true}}
+
+	_, err := store.DownloadAttachment(context.Background(), DownloadAttachmentParams{EmailID: "", AttachmentID: "1", DestDir: "C:\\tmp"})
+
+	if !errors.Is(err, ErrInvalidParams) {
+		t.Fatalf("DownloadAttachment() error = %v, want %v", err, ErrInvalidParams)
+	}
+}
+
+func TestDownloadAttachmentReturnsErrInvalidParamsWhenAttachmentIDEmpty(t *testing.T) {
+	store := &outlookMailStore{executor: &fakeCOMExecutor{started: true}}
+
+	_, err := store.DownloadAttachment(context.Background(), DownloadAttachmentParams{EmailID: "id-1", AttachmentID: "", DestDir: "C:\\tmp"})
+
+	if !errors.Is(err, ErrInvalidParams) {
+		t.Fatalf("DownloadAttachment() error = %v, want %v", err, ErrInvalidParams)
+	}
+}
+
+func TestDeleteEmailReturnsErrNotConnectedWhenExecutorNotStarted(t *testing.T) {
+	store := &outlookMailStore{executor: &fakeCOMExecutor{started: false}}
+
+	err := store.DeleteEmail(context.Background(), "id-1")
+
+	if !errors.Is(err, ErrNotConnected) {
+		t.Fatalf("DeleteEmail() error = %v, want %v", err, ErrNotConnected)
+	}
+}
+
+func TestDeleteEmailReturnsErrInvalidParamsWhenIDEmpty(t *testing.T) {
+	store := &outlookMailStore{executor: &fakeCOMExecutor{started: true}}
+
+	err := store.DeleteEmail(context.Background(), "   ")
+
+	if !errors.Is(err, ErrInvalidParams) {
+		t.Fatalf("DeleteEmail() error = %v, want %v", err, ErrInvalidParams)
+	}
+}
+
 type fakeCOMExecutor struct{ started bool }
 
 func (f *fakeCOMExecutor) Submit(ctx context.Context, fn func() error) error {

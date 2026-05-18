@@ -7,6 +7,14 @@ type MailStore interface {
 	GetEmail(ctx context.Context, id string) (*Email, error)
 	ListAttachments(ctx context.Context, params ListAttachmentsParams) ([]Attachment, error)
 	CreateDraft(ctx context.Context, params CreateDraftParams) (*Email, error)
+	ReplyDraft(ctx context.Context, params ReplyDraftParams) (*Email, error)
+	ForwardDraft(ctx context.Context, params ForwardDraftParams) (*Email, error)
+	MarkRead(ctx context.Context, params MarkReadParams) error
+	FlagEmail(ctx context.Context, params FlagEmailParams) error
+	MoveEmail(ctx context.Context, params MoveEmailParams) error
+	ListFolders(ctx context.Context) ([]MailFolder, error)
+	DownloadAttachment(ctx context.Context, params DownloadAttachmentParams) (*DownloadedAttachment, error)
+	DeleteEmail(ctx context.Context, id string) error
 }
 
 type CalendarStore interface {

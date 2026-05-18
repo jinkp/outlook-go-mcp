@@ -176,6 +176,38 @@ func (fakeMailStore) CreateDraft(context.Context, domain.CreateDraftParams) (*do
 	return &domain.Email{ID: "draft-1"}, nil
 }
 
+func (fakeMailStore) ReplyDraft(context.Context, domain.ReplyDraftParams) (*domain.Email, error) {
+	return nil, nil
+}
+
+func (fakeMailStore) ForwardDraft(context.Context, domain.ForwardDraftParams) (*domain.Email, error) {
+	return nil, nil
+}
+
+func (fakeMailStore) MarkRead(context.Context, domain.MarkReadParams) error {
+	return nil
+}
+
+func (fakeMailStore) FlagEmail(context.Context, domain.FlagEmailParams) error {
+	return nil
+}
+
+func (fakeMailStore) MoveEmail(context.Context, domain.MoveEmailParams) error {
+	return nil
+}
+
+func (fakeMailStore) ListFolders(context.Context) ([]domain.MailFolder, error) {
+	return nil, nil
+}
+
+func (fakeMailStore) DownloadAttachment(context.Context, domain.DownloadAttachmentParams) (*domain.DownloadedAttachment, error) {
+	return nil, nil
+}
+
+func (fakeMailStore) DeleteEmail(context.Context, string) error {
+	return nil
+}
+
 type fakeCalendarStore struct{}
 
 func (fakeCalendarStore) ListEvents(context.Context, domain.ListEventsParams) ([]domain.CalendarEvent, error) {

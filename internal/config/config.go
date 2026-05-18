@@ -32,6 +32,12 @@ type SecurityConfig struct {
 	AllowCreateDraft    bool `yaml:"allow_create_draft"`
 	AllowCreateEvent    bool `yaml:"allow_create_event"`
 	AllowSaveAttachment bool `yaml:"allow_save_attachments"`
+	AllowReplyDraft     bool `yaml:"allow_reply_draft"`
+	AllowForwardDraft   bool `yaml:"allow_forward_draft"`
+	AllowMarkRead       bool `yaml:"allow_mark_read"`
+	AllowFlagEmail      bool `yaml:"allow_flag_email"`
+	AllowMoveEmail      bool `yaml:"allow_move_email"`
+	AllowDeleteEmail    bool `yaml:"allow_delete_email"`
 }
 
 type PathsConfig struct {

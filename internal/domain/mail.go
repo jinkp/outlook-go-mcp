@@ -38,3 +38,48 @@ type CreateDraftParams struct {
 type ListAttachmentsParams struct {
 	EmailID string
 }
+
+type ReplyDraftParams struct {
+	EmailID string
+	Body    string
+}
+
+type ForwardDraftParams struct {
+	EmailID string
+	To      []string
+	Body    string
+}
+
+type MarkReadParams struct {
+	EmailID string
+	Read    bool
+}
+
+type FlagEmailParams struct {
+	EmailID string
+	Flagged bool
+}
+
+type MoveEmailParams struct {
+	EmailID string
+	Folder  string
+}
+
+type DownloadAttachmentParams struct {
+	EmailID      string
+	AttachmentID string
+	DestDir      string
+}
+
+type DownloadedAttachment struct {
+	Name string
+	Path string
+	Size int64
+}
+
+type MailFolder struct {
+	Name          string
+	EntryID       string
+	ParentEntryID string
+	FolderType    int
+}

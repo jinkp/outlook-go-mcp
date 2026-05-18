@@ -17,14 +17,14 @@ func TestNewServerDoesNotPanic(t *testing.T) {
 	}
 }
 
-func TestRegisterToolsRegistersExactSevenTools(t *testing.T) {
+func TestRegisterToolsRegistersExactFifteenTools(t *testing.T) {
 	server := NewServer(testHandlers())
 
 	server.RegisterTools()
 
 	registered := server.mcpServer.ListTools()
-	if len(registered) != 7 {
-		t.Fatalf("len(ListTools()) = %d, want 7", len(registered))
+	if len(registered) != 15 {
+		t.Fatalf("len(ListTools()) = %d, want 15", len(registered))
 	}
 }
 

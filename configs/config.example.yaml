@@ -6,20 +6,31 @@ outlook:
 # Security switches for write-capable operations.
 # All write actions are denied unless explicitly enabled.
 security:
-  # Reserved for future phases. Sending mail is not supported in the MVP.
+  # Reserved for future phases. Sending mail is not supported yet.
   allow_send_email: false
-  # Allows the create_draft MCP tool to save drafts in Outlook.
+  # Allows the create_draft MCP tool to save new drafts in Outlook.
   allow_create_draft: false
+  # Allows the reply_draft MCP tool to create reply drafts preserving thread context.
+  allow_reply_draft: false
+  # Allows the forward_draft MCP tool to create forward drafts.
+  allow_forward_draft: false
+  # Allows the mark_read MCP tool to toggle the read/unread state of emails.
+  allow_mark_read: false
+  # Allows the flag_email MCP tool to set or clear follow-up flags on emails.
+  allow_flag_email: false
+  # Allows the move_email MCP tool to move emails between folders.
+  allow_move_email: false
+  # Allows the delete_email MCP tool to soft-delete emails (moves to Deleted Items).
+  allow_delete_email: false
+  # Allows the download_attachment MCP tool to save attachments to attachment_dir.
+  allow_save_attachments: false
   # Allows the create_event MCP tool to save simple calendar events in Outlook.
   allow_create_event: false
-  # Reserved for future attachment download support. Unused in the MVP.
-  allow_save_attachments: false
 
 # Storage paths used by the server.
 paths:
-  # Absolute Windows path reserved for attachment export workflows.
-  # Required by config validation even though MVP tools do not write attachments yet.
-  # This remains required in the MVP even though attachment download is not implemented yet.
+  # Absolute Windows path where attachments are saved by download_attachment.
+  # Must be an absolute path. All attachment downloads are restricted to this directory.
   attachment_dir: "C:\\OutlookMCP\\attachments"
 
 # Structured logging configuration.

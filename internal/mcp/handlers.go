@@ -193,6 +193,196 @@ func (h *Handlers) HandleCreateEvent(ctx context.Context, req libmcp.CallToolReq
 	return jsonResult(map[string]any{"event_id": eventID, "created": true})
 }
 
+func (h *Handlers) HandleReplyDraft(ctx context.Context, req libmcp.CallToolRequest) (*libmcp.CallToolResult, error) {
+	emailID, err := requireTrimmedString(req, "email_id")
+	if err != nil {
+		return h.errorResult(req.Params.Name, err), nil
+	}
+	body, err := requireTrimmedString(req, "body")
+	if err != nil {
+		return h.errorResult(req.Params.Name, err), nil
+	}
+	if err := h.checkPolicy("reply_draft"); err != nil {
+		return h.errorResult(req.Params.Name, err), nil
+	}
+
+	draft, err := h.Mail.ReplyDraft(ctx, domain.ReplyDraftParams{EmailID: emailID, Body: body})
+	if err != nil {
+		return h.errorResult(req.Params.Name, err), nil
+	}
+
+	draftID := ""
+	if draft != nil {
+		draftID = draft.ID
+	}
+	return jsonResult(map[string]any{"draft_id": draftID, "saved": true})
+}
+
+func (h *Handlers) HandleForwardDraft(ctx context.Context, req libmcp.CallToolRequest) (*libmcp.CallToolResult, error) {
+	emailID, err := requireTrimmedString(req, "email_id")
+	if err != nil {
+		return h.errorResult(req.Params.Name, err), nil
+	}
+	to, err := req.RequireStringSlice("to")
+	if err != nil || len(to) == 0 {
+		return h.errorResult(req.Params.Name, invalidParams("to is required and must contain at least one recipient")), nil
+	}
+	recipients := make([]string, 0, len(to))
+	for _, r := range to {
+		trimmed := strings.TrimSpace(r)
+		if trimmed == "" {
+			return h.errorResult(req.Params.Name, invalidParams("to must not contain empty recipients")), nil
+		}
+		recipients = append(recipients, trimmed)
+	}
+	body := strings.TrimSpace(req.GetString("body", ""))
+
+	if err := h.checkPolicy("forward_draft"); err != nil {
+		return h.errorResult(req.Params.Name, err), nil
+	}
+
+	draft, err := h.Mail.ForwardDraft(ctx, domain.ForwardDraftParams{EmailID: emailID, To: recipients, Body: body})
+	if err != nil {
+		return h.errorResult(req.Params.Name, err), nil
+	}
+
+	draftID := ""
+	if draft != nil {
+		draftID = draft.ID
+	}
+	return jsonResult(map[string]any{"draft_id": draftID, "saved": true})
+}
+
+func (h *Handlers) HandleMarkRead(ctx context.Context, req libmcp.CallToolRequest) (*libmcp.CallToolResult, error) {
+	emailID, err := requireTrimmedString(req, "email_id")
+	if err != nil {
+		return h.errorResult(req.Params.Name, err), nil
+	}
+	read := req.GetBool("read", false)
+
+	if err := h.checkPolicy("mark_read"); err != nil {
+		return h.errorResult(req.Params.Name, err), nil
+	}
+
+	if err := h.Mail.MarkRead(ctx, domain.MarkReadParams{EmailID: emailID, Read: read}); err != nil {
+		return h.errorResult(req.Params.Name, err), nil
+	}
+
+	return jsonResult(map[string]any{"email_id": emailID, "read": read})
+}
+
+func (h *Handlers) HandleFlagEmail(ctx context.Context, req libmcp.CallToolRequest) (*libmcp.CallToolResult, error) {
+	emailID, err := requireTrimmedString(req, "email_id")
+	if err != nil {
+		return h.errorResult(req.Params.Name, err), nil
+	}
+	flagged := req.GetBool("flagged", false)
+
+	if err := h.checkPolicy("flag_email"); err != nil {
+		return h.errorResult(req.Params.Name, err), nil
+	}
+
+	if err := h.Mail.FlagEmail(ctx, domain.FlagEmailParams{EmailID: emailID, Flagged: flagged}); err != nil {
+		return h.errorResult(req.Params.Name, err), nil
+	}
+
+	return jsonResult(map[string]any{"email_id": emailID, "flagged": flagged})
+}
+
+func (h *Handlers) HandleMoveEmail(ctx context.Context, req libmcp.CallToolRequest) (*libmcp.CallToolResult, error) {
+	emailID, err := requireTrimmedString(req, "email_id")
+	if err != nil {
+		return h.errorResult(req.Params.Name, err), nil
+	}
+	folder, err := requireTrimmedString(req, "folder")
+	if err != nil {
+		return h.errorResult(req.Params.Name, err), nil
+	}
+
+	if err := h.checkPolicy("move_email"); err != nil {
+		return h.errorResult(req.Params.Name, err), nil
+	}
+
+	if err := h.Mail.MoveEmail(ctx, domain.MoveEmailParams{EmailID: emailID, Folder: folder}); err != nil {
+		return h.errorResult(req.Params.Name, err), nil
+	}
+
+	return jsonResult(map[string]any{"email_id": emailID, "folder": folder, "moved": true})
+}
+
+func (h *Handlers) HandleListFolders(ctx context.Context, req libmcp.CallToolRequest) (*libmcp.CallToolResult, error) {
+	// list_folders is read-only — no policy gate required
+	folders, err := h.Mail.ListFolders(ctx)
+	if err != nil {
+		return h.errorResult(req.Params.Name, err), nil
+	}
+
+	items := make([]map[string]any, 0, len(folders))
+	for _, f := range folders {
+		items = append(items, map[string]any{
+			"name":            f.Name,
+			"entry_id":        f.EntryID,
+			"parent_entry_id": f.ParentEntryID,
+			"folder_type":     f.FolderType,
+		})
+	}
+
+	return jsonResult(map[string]any{"folders": items, "count": len(items)})
+}
+
+func (h *Handlers) HandleDownloadAttachment(ctx context.Context, req libmcp.CallToolRequest) (*libmcp.CallToolResult, error) {
+	emailID, err := requireTrimmedString(req, "email_id")
+	if err != nil {
+		return h.errorResult(req.Params.Name, err), nil
+	}
+	attachmentID, err := requireTrimmedString(req, "attachment_id")
+	if err != nil {
+		return h.errorResult(req.Params.Name, err), nil
+	}
+	destDir, err := requireTrimmedString(req, "dest_dir")
+	if err != nil {
+		return h.errorResult(req.Params.Name, err), nil
+	}
+
+	if err := h.checkPolicy("download_attachment"); err != nil {
+		return h.errorResult(req.Params.Name, err), nil
+	}
+
+	downloaded, err := h.Mail.DownloadAttachment(ctx, domain.DownloadAttachmentParams{
+		EmailID:      emailID,
+		AttachmentID: attachmentID,
+		DestDir:      destDir,
+	})
+	if err != nil {
+		return h.errorResult(req.Params.Name, err), nil
+	}
+
+	result := map[string]any{"saved": true}
+	if downloaded != nil {
+		result["name"] = downloaded.Name
+		result["path"] = downloaded.Path
+		result["size_bytes"] = downloaded.Size
+	}
+	return jsonResult(result)
+}
+
+func (h *Handlers) HandleDeleteEmail(ctx context.Context, req libmcp.CallToolRequest) (*libmcp.CallToolResult, error) {
+	emailID, err := requireTrimmedString(req, "email_id")
+	if err != nil {
+		return h.errorResult(req.Params.Name, err), nil
+	}
+
+	if err := h.checkPolicy("delete_email"); err != nil {
+		return h.errorResult(req.Params.Name, err), nil
+	}
+
+	if err := h.Mail.DeleteEmail(ctx, emailID); err != nil {
+		return h.errorResult(req.Params.Name, err), nil
+	}
+
+	return jsonResult(map[string]any{"email_id": emailID, "deleted": true})
+}
+
 func parseCreateDraftParams(req libmcp.CallToolRequest) (domain.CreateDraftParams, error) {
 	to, err := req.RequireStringSlice("to")
 	if err != nil {

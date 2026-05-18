@@ -261,6 +261,440 @@ func TestHandleListEventsMapsNotConnected(t *testing.T) {
 	}
 }
 
+// ── ReplyDraft ──────────────────────────────────────────────────────────────
+
+func TestHandleReplyDraftReturnsPolicyDeniedBeforeStoreCall(t *testing.T) {
+	mail := &mockMailStore{}
+	handlers := testHandlersWithDeps(mail, &mockCalendarStore{}, &mockPolicyGate{err: errors.New("denied")})
+
+	result, err := handlers.HandleReplyDraft(context.Background(), toolRequest("reply_draft", map[string]any{
+		"email_id": "mail-1",
+		"body":     "Reply body",
+	}))
+	if err != nil {
+		t.Fatalf("HandleReplyDraft() unexpected error = %v", err)
+	}
+
+	assertToolError(t, result, libmcp.INTERNAL_ERROR, "action denied by policy")
+	if mail.replyDraftCalled {
+		t.Fatal("ReplyDraft store call must not happen when policy denies")
+	}
+}
+
+func TestHandleReplyDraftCallsStoreAndReturnsDraftIDOnSuccess(t *testing.T) {
+	mail := &mockMailStore{replyDraftResult: &domain.Email{ID: "reply-draft-1"}}
+	handlers := testHandlersWithDeps(mail, &mockCalendarStore{}, &mockPolicyGate{})
+
+	result, err := handlers.HandleReplyDraft(context.Background(), toolRequest("reply_draft", map[string]any{
+		"email_id": "mail-1",
+		"body":     "Reply body",
+	}))
+	if err != nil {
+		t.Fatalf("HandleReplyDraft() unexpected error = %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("HandleReplyDraft() returned error result: %+v", result)
+	}
+	if !mail.replyDraftCalled {
+		t.Fatal("ReplyDraft store call was not executed")
+	}
+	if mail.replyDraftParams.EmailID != "mail-1" || mail.replyDraftParams.Body != "Reply body" {
+		t.Fatalf("ReplyDraft params = %+v, want email_id=mail-1 body=Reply body", mail.replyDraftParams)
+	}
+	payload := result.StructuredContent.(map[string]any)
+	if got := payload["draft_id"]; got != "reply-draft-1" {
+		t.Fatalf("draft_id = %#v, want %q", got, "reply-draft-1")
+	}
+}
+
+func TestHandleReplyDraftReturnsInvalidParamsWhenEmailIDMissing(t *testing.T) {
+	handlers := testHandlers()
+
+	result, err := handlers.HandleReplyDraft(context.Background(), toolRequest("reply_draft", map[string]any{
+		"body": "Reply body",
+	}))
+	if err != nil {
+		t.Fatalf("HandleReplyDraft() unexpected error = %v", err)
+	}
+
+	assertToolError(t, result, libmcp.INVALID_PARAMS, "email_id")
+}
+
+// ── ForwardDraft ─────────────────────────────────────────────────────────────
+
+func TestHandleForwardDraftReturnsPolicyDeniedBeforeStoreCall(t *testing.T) {
+	mail := &mockMailStore{}
+	handlers := testHandlersWithDeps(mail, &mockCalendarStore{}, &mockPolicyGate{err: errors.New("denied")})
+
+	result, err := handlers.HandleForwardDraft(context.Background(), toolRequest("forward_draft", map[string]any{
+		"email_id": "mail-1",
+		"to":       []any{"fwd@example.com"},
+	}))
+	if err != nil {
+		t.Fatalf("HandleForwardDraft() unexpected error = %v", err)
+	}
+
+	assertToolError(t, result, libmcp.INTERNAL_ERROR, "action denied by policy")
+	if mail.forwardDraftCalled {
+		t.Fatal("ForwardDraft store call must not happen when policy denies")
+	}
+}
+
+func TestHandleForwardDraftCallsStoreAndReturnsDraftIDOnSuccess(t *testing.T) {
+	mail := &mockMailStore{forwardDraftResult: &domain.Email{ID: "fwd-draft-1"}}
+	handlers := testHandlersWithDeps(mail, &mockCalendarStore{}, &mockPolicyGate{})
+
+	result, err := handlers.HandleForwardDraft(context.Background(), toolRequest("forward_draft", map[string]any{
+		"email_id": "mail-1",
+		"to":       []any{"a@example.com", "b@example.com"},
+		"body":     "Fwd body",
+	}))
+	if err != nil {
+		t.Fatalf("HandleForwardDraft() unexpected error = %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("HandleForwardDraft() returned error result: %+v", result)
+	}
+	if !mail.forwardDraftCalled {
+		t.Fatal("ForwardDraft store call was not executed")
+	}
+	if mail.forwardDraftParams.EmailID != "mail-1" {
+		t.Fatalf("ForwardDraft params = %+v, want email_id=mail-1", mail.forwardDraftParams)
+	}
+	if len(mail.forwardDraftParams.To) != 2 {
+		t.Fatalf("ForwardDraft to = %v, want 2 recipients", mail.forwardDraftParams.To)
+	}
+}
+
+func TestHandleForwardDraftReturnsInvalidParamsWhenToMissing(t *testing.T) {
+	handlers := testHandlers()
+
+	result, err := handlers.HandleForwardDraft(context.Background(), toolRequest("forward_draft", map[string]any{
+		"email_id": "mail-1",
+	}))
+	if err != nil {
+		t.Fatalf("HandleForwardDraft() unexpected error = %v", err)
+	}
+
+	assertToolError(t, result, libmcp.INVALID_PARAMS, "to")
+}
+
+// ── MarkRead ─────────────────────────────────────────────────────────────────
+
+func TestHandleMarkReadReturnsPolicyDeniedBeforeStoreCall(t *testing.T) {
+	mail := &mockMailStore{}
+	handlers := testHandlersWithDeps(mail, &mockCalendarStore{}, &mockPolicyGate{err: errors.New("denied")})
+
+	result, err := handlers.HandleMarkRead(context.Background(), toolRequest("mark_read", map[string]any{
+		"email_id": "mail-1",
+		"read":     true,
+	}))
+	if err != nil {
+		t.Fatalf("HandleMarkRead() unexpected error = %v", err)
+	}
+
+	assertToolError(t, result, libmcp.INTERNAL_ERROR, "action denied by policy")
+	if mail.markReadCalled {
+		t.Fatal("MarkRead store call must not happen when policy denies")
+	}
+}
+
+func TestHandleMarkReadCallsStoreOnSuccess(t *testing.T) {
+	mail := &mockMailStore{}
+	handlers := testHandlersWithDeps(mail, &mockCalendarStore{}, &mockPolicyGate{})
+
+	result, err := handlers.HandleMarkRead(context.Background(), toolRequest("mark_read", map[string]any{
+		"email_id": "mail-1",
+		"read":     true,
+	}))
+	if err != nil {
+		t.Fatalf("HandleMarkRead() unexpected error = %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("HandleMarkRead() returned error result: %+v", result)
+	}
+	if !mail.markReadCalled {
+		t.Fatal("MarkRead store call was not executed")
+	}
+	if mail.markReadParams.EmailID != "mail-1" || !mail.markReadParams.Read {
+		t.Fatalf("MarkRead params = %+v, want email_id=mail-1 read=true", mail.markReadParams)
+	}
+}
+
+func TestHandleMarkReadReturnsInvalidParamsWhenEmailIDMissing(t *testing.T) {
+	handlers := testHandlers()
+
+	result, err := handlers.HandleMarkRead(context.Background(), toolRequest("mark_read", map[string]any{
+		"read": true,
+	}))
+	if err != nil {
+		t.Fatalf("HandleMarkRead() unexpected error = %v", err)
+	}
+
+	assertToolError(t, result, libmcp.INVALID_PARAMS, "email_id")
+}
+
+// ── FlagEmail ────────────────────────────────────────────────────────────────
+
+func TestHandleFlagEmailReturnsPolicyDeniedBeforeStoreCall(t *testing.T) {
+	mail := &mockMailStore{}
+	handlers := testHandlersWithDeps(mail, &mockCalendarStore{}, &mockPolicyGate{err: errors.New("denied")})
+
+	result, err := handlers.HandleFlagEmail(context.Background(), toolRequest("flag_email", map[string]any{
+		"email_id": "mail-1",
+		"flagged":  true,
+	}))
+	if err != nil {
+		t.Fatalf("HandleFlagEmail() unexpected error = %v", err)
+	}
+
+	assertToolError(t, result, libmcp.INTERNAL_ERROR, "action denied by policy")
+	if mail.flagEmailCalled {
+		t.Fatal("FlagEmail store call must not happen when policy denies")
+	}
+}
+
+func TestHandleFlagEmailCallsStoreOnSuccess(t *testing.T) {
+	mail := &mockMailStore{}
+	handlers := testHandlersWithDeps(mail, &mockCalendarStore{}, &mockPolicyGate{})
+
+	result, err := handlers.HandleFlagEmail(context.Background(), toolRequest("flag_email", map[string]any{
+		"email_id": "mail-1",
+		"flagged":  true,
+	}))
+	if err != nil {
+		t.Fatalf("HandleFlagEmail() unexpected error = %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("HandleFlagEmail() returned error result: %+v", result)
+	}
+	if !mail.flagEmailCalled {
+		t.Fatal("FlagEmail store call was not executed")
+	}
+	if mail.flagEmailParams.EmailID != "mail-1" || !mail.flagEmailParams.Flagged {
+		t.Fatalf("FlagEmail params = %+v, want email_id=mail-1 flagged=true", mail.flagEmailParams)
+	}
+}
+
+func TestHandleFlagEmailReturnsInvalidParamsWhenEmailIDMissing(t *testing.T) {
+	handlers := testHandlers()
+
+	result, err := handlers.HandleFlagEmail(context.Background(), toolRequest("flag_email", map[string]any{
+		"flagged": true,
+	}))
+	if err != nil {
+		t.Fatalf("HandleFlagEmail() unexpected error = %v", err)
+	}
+
+	assertToolError(t, result, libmcp.INVALID_PARAMS, "email_id")
+}
+
+// ── MoveEmail ────────────────────────────────────────────────────────────────
+
+func TestHandleMoveEmailReturnsPolicyDeniedBeforeStoreCall(t *testing.T) {
+	mail := &mockMailStore{}
+	handlers := testHandlersWithDeps(mail, &mockCalendarStore{}, &mockPolicyGate{err: errors.New("denied")})
+
+	result, err := handlers.HandleMoveEmail(context.Background(), toolRequest("move_email", map[string]any{
+		"email_id": "mail-1",
+		"folder":   "Archive",
+	}))
+	if err != nil {
+		t.Fatalf("HandleMoveEmail() unexpected error = %v", err)
+	}
+
+	assertToolError(t, result, libmcp.INTERNAL_ERROR, "action denied by policy")
+	if mail.moveEmailCalled {
+		t.Fatal("MoveEmail store call must not happen when policy denies")
+	}
+}
+
+func TestHandleMoveEmailCallsStoreOnSuccess(t *testing.T) {
+	mail := &mockMailStore{}
+	handlers := testHandlersWithDeps(mail, &mockCalendarStore{}, &mockPolicyGate{})
+
+	result, err := handlers.HandleMoveEmail(context.Background(), toolRequest("move_email", map[string]any{
+		"email_id": "mail-1",
+		"folder":   "Archive",
+	}))
+	if err != nil {
+		t.Fatalf("HandleMoveEmail() unexpected error = %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("HandleMoveEmail() returned error result: %+v", result)
+	}
+	if !mail.moveEmailCalled {
+		t.Fatal("MoveEmail store call was not executed")
+	}
+	if mail.moveEmailParams.EmailID != "mail-1" || mail.moveEmailParams.Folder != "Archive" {
+		t.Fatalf("MoveEmail params = %+v, want email_id=mail-1 folder=Archive", mail.moveEmailParams)
+	}
+}
+
+func TestHandleMoveEmailReturnsInvalidParamsWhenFolderMissing(t *testing.T) {
+	handlers := testHandlers()
+
+	result, err := handlers.HandleMoveEmail(context.Background(), toolRequest("move_email", map[string]any{
+		"email_id": "mail-1",
+	}))
+	if err != nil {
+		t.Fatalf("HandleMoveEmail() unexpected error = %v", err)
+	}
+
+	assertToolError(t, result, libmcp.INVALID_PARAMS, "folder")
+}
+
+// ── ListFolders ──────────────────────────────────────────────────────────────
+
+func TestHandleListFoldersReturnsJSONOnSuccess(t *testing.T) {
+	mail := &mockMailStore{
+		listFoldersResult: []domain.MailFolder{
+			{Name: "Inbox", EntryID: "eid-1", ParentEntryID: "", FolderType: 0},
+			{Name: "Archive", EntryID: "eid-2", ParentEntryID: "eid-1", FolderType: 0},
+		},
+	}
+	handlers := testHandlersWithDeps(mail, &mockCalendarStore{}, &mockPolicyGate{})
+
+	result, err := handlers.HandleListFolders(context.Background(), toolRequest("list_folders", map[string]any{}))
+	if err != nil {
+		t.Fatalf("HandleListFolders() unexpected error = %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("HandleListFolders() returned error result: %+v", result)
+	}
+	if !mail.listFoldersCalled {
+		t.Fatal("ListFolders store call was not executed")
+	}
+	payload := result.StructuredContent.(map[string]any)
+	if got := payload["count"]; got != float64(2) && got != 2 {
+		t.Fatalf("count = %#v, want 2", got)
+	}
+}
+
+func TestHandleListFoldersReturnsErrNotConnected(t *testing.T) {
+	mail := &mockMailStore{listFoldersErr: domain.ErrNotConnected}
+	handlers := testHandlersWithDeps(mail, &mockCalendarStore{}, &mockPolicyGate{})
+
+	result, err := handlers.HandleListFolders(context.Background(), toolRequest("list_folders", map[string]any{}))
+	if err != nil {
+		t.Fatalf("HandleListFolders() unexpected error = %v", err)
+	}
+
+	assertToolError(t, result, libmcp.INTERNAL_ERROR, "Outlook not connected")
+}
+
+// ── DownloadAttachment ───────────────────────────────────────────────────────
+
+func TestHandleDownloadAttachmentReturnsPolicyDeniedBeforeStoreCall(t *testing.T) {
+	mail := &mockMailStore{}
+	handlers := testHandlersWithDeps(mail, &mockCalendarStore{}, &mockPolicyGate{err: errors.New("denied")})
+
+	result, err := handlers.HandleDownloadAttachment(context.Background(), toolRequest("download_attachment", map[string]any{
+		"email_id":      "mail-1",
+		"attachment_id": "1",
+		"dest_dir":      "C:\\tmp",
+	}))
+	if err != nil {
+		t.Fatalf("HandleDownloadAttachment() unexpected error = %v", err)
+	}
+
+	assertToolError(t, result, libmcp.INTERNAL_ERROR, "action denied by policy")
+	if mail.downloadAttachCalled {
+		t.Fatal("DownloadAttachment store call must not happen when policy denies")
+	}
+}
+
+func TestHandleDownloadAttachmentCallsStoreAndReturnsResultOnSuccess(t *testing.T) {
+	mail := &mockMailStore{
+		downloadAttachResult: &domain.DownloadedAttachment{Name: "report.pdf", Path: "C:\\tmp\\report.pdf", Size: 2048},
+	}
+	handlers := testHandlersWithDeps(mail, &mockCalendarStore{}, &mockPolicyGate{})
+
+	result, err := handlers.HandleDownloadAttachment(context.Background(), toolRequest("download_attachment", map[string]any{
+		"email_id":      "mail-1",
+		"attachment_id": "1",
+		"dest_dir":      "C:\\tmp",
+	}))
+	if err != nil {
+		t.Fatalf("HandleDownloadAttachment() unexpected error = %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("HandleDownloadAttachment() returned error result: %+v", result)
+	}
+	if !mail.downloadAttachCalled {
+		t.Fatal("DownloadAttachment store call was not executed")
+	}
+	payload := result.StructuredContent.(map[string]any)
+	if got := payload["name"]; got != "report.pdf" {
+		t.Fatalf("name = %#v, want %q", got, "report.pdf")
+	}
+}
+
+func TestHandleDownloadAttachmentReturnsInvalidParamsWhenEmailIDMissing(t *testing.T) {
+	handlers := testHandlers()
+
+	result, err := handlers.HandleDownloadAttachment(context.Background(), toolRequest("download_attachment", map[string]any{
+		"attachment_id": "1",
+		"dest_dir":      "C:\\tmp",
+	}))
+	if err != nil {
+		t.Fatalf("HandleDownloadAttachment() unexpected error = %v", err)
+	}
+
+	assertToolError(t, result, libmcp.INVALID_PARAMS, "email_id")
+}
+
+// ── DeleteEmail ──────────────────────────────────────────────────────────────
+
+func TestHandleDeleteEmailReturnsPolicyDeniedBeforeStoreCall(t *testing.T) {
+	mail := &mockMailStore{}
+	handlers := testHandlersWithDeps(mail, &mockCalendarStore{}, &mockPolicyGate{err: errors.New("denied")})
+
+	result, err := handlers.HandleDeleteEmail(context.Background(), toolRequest("delete_email", map[string]any{
+		"email_id": "mail-1",
+	}))
+	if err != nil {
+		t.Fatalf("HandleDeleteEmail() unexpected error = %v", err)
+	}
+
+	assertToolError(t, result, libmcp.INTERNAL_ERROR, "action denied by policy")
+	if mail.deleteEmailCalled {
+		t.Fatal("DeleteEmail store call must not happen when policy denies")
+	}
+}
+
+func TestHandleDeleteEmailCallsStoreOnSuccess(t *testing.T) {
+	mail := &mockMailStore{}
+	handlers := testHandlersWithDeps(mail, &mockCalendarStore{}, &mockPolicyGate{})
+
+	result, err := handlers.HandleDeleteEmail(context.Background(), toolRequest("delete_email", map[string]any{
+		"email_id": "mail-1",
+	}))
+	if err != nil {
+		t.Fatalf("HandleDeleteEmail() unexpected error = %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("HandleDeleteEmail() returned error result: %+v", result)
+	}
+	if !mail.deleteEmailCalled {
+		t.Fatal("DeleteEmail store call was not executed")
+	}
+	if mail.deleteEmailID != "mail-1" {
+		t.Fatalf("DeleteEmail id = %q, want %q", mail.deleteEmailID, "mail-1")
+	}
+}
+
+func TestHandleDeleteEmailReturnsInvalidParamsWhenEmailIDMissing(t *testing.T) {
+	handlers := testHandlers()
+
+	result, err := handlers.HandleDeleteEmail(context.Background(), toolRequest("delete_email", map[string]any{}))
+	if err != nil {
+		t.Fatalf("HandleDeleteEmail() unexpected error = %v", err)
+	}
+
+	assertToolError(t, result, libmcp.INVALID_PARAMS, "email_id")
+}
+
 func assertToolError(t *testing.T, result *libmcp.CallToolResult, wantCode int, wantMessageSubstring string) {
 	t.Helper()
 	if result == nil {
@@ -313,6 +747,34 @@ type mockMailStore struct {
 	createDraftParams     domain.CreateDraftParams
 	listAttachmentsCalled bool
 	listAttachmentsParams domain.ListAttachmentsParams
+
+	replyDraftResult     *domain.Email
+	replyDraftErr        error
+	replyDraftCalled     bool
+	replyDraftParams     domain.ReplyDraftParams
+	forwardDraftResult   *domain.Email
+	forwardDraftErr      error
+	forwardDraftCalled   bool
+	forwardDraftParams   domain.ForwardDraftParams
+	markReadErr          error
+	markReadCalled       bool
+	markReadParams       domain.MarkReadParams
+	flagEmailErr         error
+	flagEmailCalled      bool
+	flagEmailParams      domain.FlagEmailParams
+	moveEmailErr         error
+	moveEmailCalled      bool
+	moveEmailParams      domain.MoveEmailParams
+	listFoldersResult    []domain.MailFolder
+	listFoldersErr       error
+	listFoldersCalled    bool
+	downloadAttachResult *domain.DownloadedAttachment
+	downloadAttachErr    error
+	downloadAttachCalled bool
+	downloadAttachParams domain.DownloadAttachmentParams
+	deleteEmailErr       error
+	deleteEmailCalled    bool
+	deleteEmailID        string
 }
 
 func (m *mockMailStore) SearchEmails(context.Context, domain.SearchEmailsParams) ([]domain.Email, error) {
@@ -333,6 +795,53 @@ func (m *mockMailStore) CreateDraft(_ context.Context, params domain.CreateDraft
 	m.createDraftCalled = true
 	m.createDraftParams = params
 	return m.createDraftResult, m.createDraftErr
+}
+
+func (m *mockMailStore) ReplyDraft(_ context.Context, params domain.ReplyDraftParams) (*domain.Email, error) {
+	m.replyDraftCalled = true
+	m.replyDraftParams = params
+	return m.replyDraftResult, m.replyDraftErr
+}
+
+func (m *mockMailStore) ForwardDraft(_ context.Context, params domain.ForwardDraftParams) (*domain.Email, error) {
+	m.forwardDraftCalled = true
+	m.forwardDraftParams = params
+	return m.forwardDraftResult, m.forwardDraftErr
+}
+
+func (m *mockMailStore) MarkRead(_ context.Context, params domain.MarkReadParams) error {
+	m.markReadCalled = true
+	m.markReadParams = params
+	return m.markReadErr
+}
+
+func (m *mockMailStore) FlagEmail(_ context.Context, params domain.FlagEmailParams) error {
+	m.flagEmailCalled = true
+	m.flagEmailParams = params
+	return m.flagEmailErr
+}
+
+func (m *mockMailStore) MoveEmail(_ context.Context, params domain.MoveEmailParams) error {
+	m.moveEmailCalled = true
+	m.moveEmailParams = params
+	return m.moveEmailErr
+}
+
+func (m *mockMailStore) ListFolders(_ context.Context) ([]domain.MailFolder, error) {
+	m.listFoldersCalled = true
+	return m.listFoldersResult, m.listFoldersErr
+}
+
+func (m *mockMailStore) DownloadAttachment(_ context.Context, params domain.DownloadAttachmentParams) (*domain.DownloadedAttachment, error) {
+	m.downloadAttachCalled = true
+	m.downloadAttachParams = params
+	return m.downloadAttachResult, m.downloadAttachErr
+}
+
+func (m *mockMailStore) DeleteEmail(_ context.Context, id string) error {
+	m.deleteEmailCalled = true
+	m.deleteEmailID = id
+	return m.deleteEmailErr
 }
 
 type mockCalendarStore struct {

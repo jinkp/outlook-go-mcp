@@ -15,6 +15,9 @@ const (
 	olFolderInbox = 6
 
 	defaultMailSearchMaxResults = 20
+
+	olFlagNone   = 0
+	olFlagMarked = 2
 )
 
 type mailSubmitter interface {

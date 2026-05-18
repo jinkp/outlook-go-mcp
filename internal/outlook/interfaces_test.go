@@ -33,6 +33,38 @@ func (mailStoreContract) CreateDraft(context.Context, CreateDraftParams) (*Email
 	return nil, nil
 }
 
+func (mailStoreContract) ReplyDraft(context.Context, domain.ReplyDraftParams) (*Email, error) {
+	return nil, nil
+}
+
+func (mailStoreContract) ForwardDraft(context.Context, domain.ForwardDraftParams) (*Email, error) {
+	return nil, nil
+}
+
+func (mailStoreContract) MarkRead(context.Context, domain.MarkReadParams) error {
+	return nil
+}
+
+func (mailStoreContract) FlagEmail(context.Context, domain.FlagEmailParams) error {
+	return nil
+}
+
+func (mailStoreContract) MoveEmail(context.Context, domain.MoveEmailParams) error {
+	return nil
+}
+
+func (mailStoreContract) ListFolders(context.Context) ([]domain.MailFolder, error) {
+	return nil, nil
+}
+
+func (mailStoreContract) DownloadAttachment(context.Context, domain.DownloadAttachmentParams) (*domain.DownloadedAttachment, error) {
+	return nil, nil
+}
+
+func (mailStoreContract) DeleteEmail(context.Context, string) error {
+	return nil
+}
+
 type calendarStoreContract struct{}
 
 func (calendarStoreContract) ListEvents(context.Context, ListEventsParams) ([]CalendarEvent, error) {

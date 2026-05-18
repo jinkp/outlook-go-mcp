@@ -6,12 +6,15 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
+	"github.com/jinkp/outlook-go-mcp/internal/domain"
 )
 
 func mailStoreSession(executor *COMExecutor) OutlookSession {
@@ -216,6 +219,435 @@ func (s *outlookMailStore) CreateDraft(ctx context.Context, params CreateDraftPa
 	}
 
 	return draft, nil
+}
+
+func (s *outlookMailStore) ReplyDraft(ctx context.Context, params domain.ReplyDraftParams) (*Email, error) {
+	if strings.TrimSpace(params.EmailID) == "" {
+		return nil, fmt.Errorf("%w: email_id is required", ErrInvalidParams)
+	}
+	if strings.TrimSpace(params.Body) == "" {
+		return nil, fmt.Errorf("%w: body is required", ErrInvalidParams)
+	}
+
+	var draft *Email
+	err := s.submit(ctx, func() error {
+		session, err := s.connectedSession()
+		if err != nil {
+			return err
+		}
+
+		item, err := getMailItemByID(session, params.EmailID)
+		if err != nil {
+			return err
+		}
+		defer item.Release()
+
+		reply, err := dispatchCall(item, "Reply")
+		if err != nil {
+			return wrapCOMError("create reply draft", err)
+		}
+		defer reply.Release()
+
+		if err := putProperty(reply, "Body", params.Body); err != nil {
+			return err
+		}
+		if _, err := oleutil.CallMethod(reply, "Save"); err != nil {
+			return wrapCOMError("save reply draft", err)
+		}
+
+		record, err := mapMailDetails(reply)
+		if err != nil {
+			return err
+		}
+		mapped := mapMailRecordToEmail(record)
+		draft = &mapped
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return draft, nil
+}
+
+func (s *outlookMailStore) ForwardDraft(ctx context.Context, params domain.ForwardDraftParams) (*Email, error) {
+	if strings.TrimSpace(params.EmailID) == "" {
+		return nil, fmt.Errorf("%w: email_id is required", ErrInvalidParams)
+	}
+	if len(params.To) == 0 {
+		return nil, fmt.Errorf("%w: at least one recipient is required", ErrInvalidParams)
+	}
+
+	var draft *Email
+	err := s.submit(ctx, func() error {
+		session, err := s.connectedSession()
+		if err != nil {
+			return err
+		}
+
+		item, err := getMailItemByID(session, params.EmailID)
+		if err != nil {
+			return err
+		}
+		defer item.Release()
+
+		fwd, err := dispatchCall(item, "Forward")
+		if err != nil {
+			return wrapCOMError("create forward draft", err)
+		}
+		defer fwd.Release()
+
+		if err := putProperty(fwd, "To", strings.Join(params.To, ";")); err != nil {
+			return err
+		}
+		if params.Body != "" {
+			if err := putProperty(fwd, "Body", params.Body); err != nil {
+				return err
+			}
+		}
+		if _, err := oleutil.CallMethod(fwd, "Save"); err != nil {
+			return wrapCOMError("save forward draft", err)
+		}
+
+		record, err := mapMailDetails(fwd)
+		if err != nil {
+			return err
+		}
+		mapped := mapMailRecordToEmail(record)
+		draft = &mapped
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return draft, nil
+}
+
+func (s *outlookMailStore) MarkRead(ctx context.Context, params domain.MarkReadParams) error {
+	if strings.TrimSpace(params.EmailID) == "" {
+		return fmt.Errorf("%w: email_id is required", ErrInvalidParams)
+	}
+
+	return s.submit(ctx, func() error {
+		session, err := s.connectedSession()
+		if err != nil {
+			return err
+		}
+
+		item, err := getMailItemByID(session, params.EmailID)
+		if err != nil {
+			return err
+		}
+		defer item.Release()
+
+		// CRITICAL: Outlook's COM property is UnRead (inverse of read).
+		// read=true → UnRead=false; read=false → UnRead=true
+		if err := putProperty(item, "UnRead", !params.Read); err != nil {
+			return err
+		}
+		if _, err := oleutil.CallMethod(item, "Save"); err != nil {
+			return wrapCOMError("save mark_read", err)
+		}
+		return nil
+	})
+}
+
+func (s *outlookMailStore) FlagEmail(ctx context.Context, params domain.FlagEmailParams) error {
+	if strings.TrimSpace(params.EmailID) == "" {
+		return fmt.Errorf("%w: email_id is required", ErrInvalidParams)
+	}
+
+	return s.submit(ctx, func() error {
+		session, err := s.connectedSession()
+		if err != nil {
+			return err
+		}
+
+		item, err := getMailItemByID(session, params.EmailID)
+		if err != nil {
+			return err
+		}
+		defer item.Release()
+
+		flagStatus := olFlagNone
+		if params.Flagged {
+			flagStatus = olFlagMarked
+		}
+		if err := putProperty(item, "FlagStatus", flagStatus); err != nil {
+			return err
+		}
+		if _, err := oleutil.CallMethod(item, "Save"); err != nil {
+			return wrapCOMError("save flag_email", err)
+		}
+		return nil
+	})
+}
+
+func (s *outlookMailStore) MoveEmail(ctx context.Context, params domain.MoveEmailParams) error {
+	if strings.TrimSpace(params.EmailID) == "" {
+		return fmt.Errorf("%w: email_id is required", ErrInvalidParams)
+	}
+	if strings.TrimSpace(params.Folder) == "" {
+		return fmt.Errorf("%w: folder is required", ErrInvalidParams)
+	}
+
+	return s.submit(ctx, func() error {
+		session, err := s.connectedSession()
+		if err != nil {
+			return err
+		}
+
+		item, err := getMailItemByID(session, params.EmailID)
+		if err != nil {
+			return err
+		}
+		defer item.Release()
+
+		destFolder, err := resolveAnyFolder(session, params.Folder)
+		if err != nil {
+			return err
+		}
+		defer destFolder.Release()
+
+		if _, err := oleutil.CallMethod(item, "Move", destFolder); err != nil {
+			return wrapCOMError("move email", err)
+		}
+		return nil
+	})
+}
+
+func (s *outlookMailStore) ListFolders(ctx context.Context) ([]domain.MailFolder, error) {
+	var folders []domain.MailFolder
+
+	err := s.submit(ctx, func() error {
+		session, err := s.connectedSession()
+		if err != nil {
+			return err
+		}
+
+		rootFolders, err := dispatchProperty(session.mapi, "Folders")
+		if err != nil {
+			return err
+		}
+		defer rootFolders.Release()
+
+		rootCount, err := intProperty(rootFolders, "Count")
+		if err != nil {
+			return err
+		}
+
+		for i := 1; i <= rootCount; i++ {
+			store, err := dispatchIndexedProperty(rootFolders, "Item", i)
+			if err != nil {
+				continue
+			}
+
+			storeName, _ := stringProperty(store, "Name")
+			storeEntryID, _ := stringProperty(store, "EntryID")
+			storeFolderType, _ := intProperty(store, "DefaultItemType")
+
+			folders = append(folders, domain.MailFolder{
+				Name:          storeName,
+				EntryID:       storeEntryID,
+				ParentEntryID: "",
+				FolderType:    storeFolderType,
+			})
+
+			// Walk immediate children (depth-2)
+			subFolders, subErr := dispatchProperty(store, "Folders")
+			store.Release()
+			if subErr != nil {
+				continue
+			}
+
+			subCount, _ := intProperty(subFolders, "Count")
+			for j := 1; j <= subCount; j++ {
+				sub, err := dispatchIndexedProperty(subFolders, "Item", j)
+				if err != nil {
+					continue
+				}
+				subName, _ := stringProperty(sub, "Name")
+				subEntryID, _ := stringProperty(sub, "EntryID")
+				subFolderType, _ := intProperty(sub, "DefaultItemType")
+
+				folders = append(folders, domain.MailFolder{
+					Name:          subName,
+					EntryID:       subEntryID,
+					ParentEntryID: storeEntryID,
+					FolderType:    subFolderType,
+				})
+				sub.Release()
+			}
+			subFolders.Release()
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return folders, nil
+}
+
+func (s *outlookMailStore) DownloadAttachment(ctx context.Context, params domain.DownloadAttachmentParams) (*domain.DownloadedAttachment, error) {
+	if strings.TrimSpace(params.EmailID) == "" {
+		return nil, fmt.Errorf("%w: email_id is required", ErrInvalidParams)
+	}
+	if strings.TrimSpace(params.AttachmentID) == "" {
+		return nil, fmt.Errorf("%w: attachment_id is required", ErrInvalidParams)
+	}
+	if strings.TrimSpace(params.DestDir) == "" {
+		return nil, fmt.Errorf("%w: dest_dir is required", ErrInvalidParams)
+	}
+	if !filepath.IsAbs(params.DestDir) {
+		return nil, fmt.Errorf("%w: dest_dir must be an absolute path", ErrInvalidParams)
+	}
+
+	var result *domain.DownloadedAttachment
+	err := s.submit(ctx, func() error {
+		session, err := s.connectedSession()
+		if err != nil {
+			return err
+		}
+
+		item, err := getMailItemByID(session, params.EmailID)
+		if err != nil {
+			return err
+		}
+		defer item.Release()
+
+		attachments, err := dispatchProperty(item, "Attachments")
+		if err != nil {
+			return err
+		}
+		defer attachments.Release()
+
+		// Locate attachment by ID (1-based index as string)
+		idx, parseErr := strconv.Atoi(params.AttachmentID)
+		if parseErr != nil || idx < 1 {
+			return fmt.Errorf("%w: attachment_id must be a positive integer index", ErrInvalidParams)
+		}
+
+		attachment, err := dispatchIndexedProperty(attachments, "Item", idx)
+		if err != nil {
+			return fmt.Errorf("%w: attachment %q", ErrNotFound, params.AttachmentID)
+		}
+		defer attachment.Release()
+
+		attachName, _ := firstNonEmptyStringProperty(attachment, "FileName", "DisplayName")
+		if attachName == "" {
+			attachName = fmt.Sprintf("attachment-%s", params.AttachmentID)
+		}
+
+		// Triple security check
+		safeName := filepath.Base(attachName) // strip any path components
+
+		absDestDir, err := filepath.Abs(params.DestDir)
+		if err != nil {
+			return fmt.Errorf("%w: cannot resolve dest_dir: %v", ErrInvalidParams, err)
+		}
+
+		absPath := filepath.Join(absDestDir, safeName)
+
+		// Verify the resolved path stays inside destDir
+		if !strings.HasPrefix(absPath, absDestDir+string(os.PathSeparator)) {
+			return fmt.Errorf("%w: destination path escapes dest_dir", ErrInvalidParams)
+		}
+
+		if _, err := oleutil.CallMethod(attachment, "SaveAsFile", absPath); err != nil {
+			return wrapCOMError("save attachment", err)
+		}
+
+		info, err := os.Stat(absPath)
+		if err != nil {
+			return fmt.Errorf("%w: stat saved file: %v", ErrCOMFailure, err)
+		}
+
+		result = &domain.DownloadedAttachment{
+			Name: safeName,
+			Path: absPath,
+			Size: info.Size(),
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (s *outlookMailStore) DeleteEmail(ctx context.Context, id string) error {
+	if strings.TrimSpace(id) == "" {
+		return fmt.Errorf("%w: email id is required", ErrInvalidParams)
+	}
+
+	return s.submit(ctx, func() error {
+		session, err := s.connectedSession()
+		if err != nil {
+			return err
+		}
+
+		item, err := getMailItemByID(session, id)
+		if err != nil {
+			return err
+		}
+		defer item.Release()
+
+		return deleteMailItem(item)
+	})
+}
+
+// resolveAnyFolder walks all top-level mail stores and their immediate children (depth-2)
+// to find a folder matching name (case-insensitive). Returns ErrNotFound if no match.
+func resolveAnyFolder(session *outlookSession, name string) (*ole.IDispatch, error) {
+	name = strings.TrimSpace(name)
+
+	rootFolders, err := dispatchProperty(session.mapi, "Folders")
+	if err != nil {
+		return nil, err
+	}
+	defer rootFolders.Release()
+
+	rootCount, err := intProperty(rootFolders, "Count")
+	if err != nil {
+		return nil, err
+	}
+
+	for i := 1; i <= rootCount; i++ {
+		store, err := dispatchIndexedProperty(rootFolders, "Item", i)
+		if err != nil {
+			continue
+		}
+
+		// Check the top-level store itself
+		storeName, nameErr := stringProperty(store, "Name")
+		if nameErr == nil && strings.EqualFold(storeName, name) {
+			return store, nil
+		}
+
+		// Walk immediate children
+		subFolders, subErr := dispatchProperty(store, "Folders")
+		store.Release()
+		if subErr != nil {
+			continue
+		}
+
+		subCount, _ := intProperty(subFolders, "Count")
+		for j := 1; j <= subCount; j++ {
+			sub, err := dispatchIndexedProperty(subFolders, "Item", j)
+			if err != nil {
+				continue
+			}
+			subName, nameErr := stringProperty(sub, "Name")
+			if nameErr == nil && strings.EqualFold(subName, name) {
+				subFolders.Release()
+				return sub, nil
+			}
+			sub.Release()
+		}
+		subFolders.Release()
+	}
+
+	return nil, fmt.Errorf("%w: folder %q not found", ErrNotFound, name)
 }
 
 func (s *outlookMailStore) connectedSession() (*outlookSession, error) {

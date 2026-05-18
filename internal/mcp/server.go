@@ -48,6 +48,22 @@ func (s *Server) handlerFor(name string) func(context.Context, libmcp.CallToolRe
 		return s.handlers.HandleGetEvent
 	case "create_event":
 		return s.handlers.HandleCreateEvent
+	case "reply_draft":
+		return s.handlers.HandleReplyDraft
+	case "forward_draft":
+		return s.handlers.HandleForwardDraft
+	case "mark_read":
+		return s.handlers.HandleMarkRead
+	case "flag_email":
+		return s.handlers.HandleFlagEmail
+	case "move_email":
+		return s.handlers.HandleMoveEmail
+	case "list_folders":
+		return s.handlers.HandleListFolders
+	case "download_attachment":
+		return s.handlers.HandleDownloadAttachment
+	case "delete_email":
+		return s.handlers.HandleDeleteEmail
 	default:
 		panic("unknown tool handler: " + name)
 	}
