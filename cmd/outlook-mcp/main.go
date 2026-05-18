@@ -10,8 +10,10 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/jinkp/outlook-go-mcp/internal/config"
@@ -19,6 +21,7 @@ import (
 	"github.com/jinkp/outlook-go-mcp/internal/logging"
 	"github.com/jinkp/outlook-go-mcp/internal/mcp"
 	"github.com/jinkp/outlook-go-mcp/internal/outlook"
+	"github.com/jinkp/outlook-go-mcp/internal/report"
 	"github.com/jinkp/outlook-go-mcp/internal/security"
 	"github.com/jinkp/outlook-go-mcp/internal/tui"
 	"github.com/jinkp/outlook-go-mcp/internal/version"
@@ -78,6 +81,8 @@ type application struct {
 	logger     *slog.Logger
 	executor   executorController
 	server     mcpServer
+	Mail       domain.MailStore
+	Calendar   domain.CalendarStore
 }
 
 func main() {
@@ -109,6 +114,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newMCPCmd())
 	root.AddCommand(newTUICmd())
 	root.AddCommand(newSetupCmd())
+	root.AddCommand(newReportCmd())
 
 	return root
 }
@@ -363,9 +369,12 @@ func bootstrap(configPath string, deps bootstrapDeps) (*application, error) {
 		return nil, &bootstrapError{stage: stageExecutorStart, err: err, logger: logger}
 	}
 
+	mailStore := deps.newMailStore(executor)
+	calendarStore := deps.newCalendarStore(executor)
+
 	handlers := mcp.Handlers{
-		Mail:     deps.newMailStore(executor),
-		Calendar: deps.newCalendarStore(executor),
+		Mail:     mailStore,
+		Calendar: calendarStore,
 		Policy:   deps.newPolicyGate(*cfg),
 		Config:   cfg,
 		Logger:   logger,
@@ -380,6 +389,8 @@ func bootstrap(configPath string, deps bootstrapDeps) (*application, error) {
 		logger:     logger,
 		executor:   executor,
 		server:     server,
+		Mail:       mailStore,
+		Calendar:   calendarStore,
 	}, nil
 }
 
@@ -404,6 +415,100 @@ func reportBootstrapError(stderr io.Writer, err error) {
 	default:
 		fmt.Fprintf(stderr, "startup failed: %v\n", bootstrapErr.err)
 	}
+}
+
+// newReportCmd returns the `outlook-mcp report` subcommand.
+func newReportCmd() *cobra.Command {
+	var (
+		configPath     string
+		outputOverride string
+		draftOverride  string
+		sinceOverride  int
+	)
+
+	cmd := &cobra.Command{
+		Use:          "report",
+		Short:        "Generate daily email intelligence report (markdown file and/or Outlook draft)",
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			log.SetOutput(os.Stderr)
+
+			app, err := bootstrap(configPath, productionDeps())
+			if err != nil {
+				reportBootstrapError(os.Stderr, err)
+				return err
+			}
+			defer app.executor.Stop()
+
+			cfg := app.config.Report
+			if outputOverride != "" {
+				cfg.OutputFile = outputOverride
+			}
+			if draftOverride != "" {
+				cfg.DraftRecipient = draftOverride
+			}
+			if sinceOverride > 0 {
+				cfg.SinceHours = sinceOverride
+			}
+
+			// Apply defaults for zero values
+			if cfg.SinceHours == 0 {
+				cfg.SinceHours = 24
+			}
+			if cfg.MaxPerSection == 0 {
+				cfg.MaxPerSection = 20
+			}
+
+			// Validate: at least one output must be configured
+			if cfg.OutputFile == "" && cfg.DraftRecipient == "" {
+				return fmt.Errorf("report: set output_file and/or draft_recipient in config (or use --output / --draft flags)")
+			}
+
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+
+			engine := report.NewEngine(app.Mail, app.Calendar, cfg, app.logger, nil)
+			rpt, err := engine.Run(ctx)
+			if err != nil {
+				return fmt.Errorf("report failed: %w", err)
+			}
+
+			content := report.RenderMarkdown(rpt)
+
+			if cfg.OutputFile != "" {
+				if err := os.MkdirAll(filepath.Dir(cfg.OutputFile), 0o755); err != nil {
+					return fmt.Errorf("create output directory: %w", err)
+				}
+				if err := os.WriteFile(cfg.OutputFile, []byte(content), 0o644); err != nil {
+					return fmt.Errorf("write report file: %w", err)
+				}
+				app.logger.Info("Report written", slog.String("path", cfg.OutputFile))
+			}
+
+			if cfg.DraftRecipient != "" {
+				if !app.config.Security.AllowCreateDraft {
+					return fmt.Errorf("report: draft output requires security.allow_create_draft = true in config")
+				}
+				_, err := app.Mail.CreateDraft(ctx, domain.CreateDraftParams{
+					To:      []string{cfg.DraftRecipient},
+					Subject: fmt.Sprintf("Daily Report — %s", time.Now().Format("2006-01-02")),
+					Body:    content,
+				})
+				if err != nil {
+					return fmt.Errorf("create draft: %w", err)
+				}
+				app.logger.Info("Report draft created", slog.String("recipient", cfg.DraftRecipient))
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&configPath, "config", "config.yaml", "Path to config.yaml")
+	cmd.Flags().StringVar(&outputOverride, "output", "", "Write report to this file path (overrides config)")
+	cmd.Flags().StringVar(&draftOverride, "draft", "", "Create Outlook draft to this email (overrides config)")
+	cmd.Flags().IntVar(&sinceOverride, "since", 0, "Lookback window in hours (overrides config)")
+	return cmd
 }
 
 func productionDeps() bootstrapDeps {

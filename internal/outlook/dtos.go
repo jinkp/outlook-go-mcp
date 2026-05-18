@@ -18,3 +18,4 @@ type MoveEmailParams = domain.MoveEmailParams
 type MailFolder = domain.MailFolder
 type DownloadAttachmentParams = domain.DownloadAttachmentParams
 type DownloadedAttachment = domain.DownloadedAttachment
+type ListEmailsInRangeParams = domain.ListEmailsInRangeParams

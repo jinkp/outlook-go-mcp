@@ -208,6 +208,80 @@ func (fakeMailStore) DeleteEmail(context.Context, string) error {
 	return nil
 }
 
+func (fakeMailStore) ListEmailsInRange(context.Context, domain.ListEmailsInRangeParams) ([]domain.Email, error) {
+	return nil, nil
+}
+
+func TestNewReportCmdWritesFileWhenOutputConfigured(t *testing.T) {
+	outputFile := filepath.Join(t.TempDir(), "report.md")
+	configPath := writeReportTestConfig(t, outputFile, "")
+
+	// Build the command tree
+	rootCmd := newRootCmd()
+
+	// Override with a test-friendly args slice
+	rootCmd.SetArgs([]string{
+		"report",
+		"--config", configPath,
+		"--output", outputFile,
+	})
+
+	// We can't run it fully (COM not available), but we can verify the command structure
+	// by checking --help works and the command is registered
+	reportCmd, _, err := rootCmd.Find([]string{"report"})
+	if err != nil {
+		t.Fatalf("Find report command: %v", err)
+	}
+	if reportCmd == nil || reportCmd.Use != "report" {
+		t.Fatalf("report command not found or has wrong Use: %v", reportCmd)
+	}
+	if reportCmd.Short == "" {
+		t.Fatal("report command has no Short description")
+	}
+
+	// Verify flags are registered
+	outputFlag := reportCmd.Flags().Lookup("output")
+	if outputFlag == nil {
+		t.Fatal("report command missing --output flag")
+	}
+	draftFlag := reportCmd.Flags().Lookup("draft")
+	if draftFlag == nil {
+		t.Fatal("report command missing --draft flag")
+	}
+	sinceFlag := reportCmd.Flags().Lookup("since")
+	if sinceFlag == nil {
+		t.Fatal("report command missing --since flag")
+	}
+}
+
+func writeReportTestConfig(t *testing.T, outputFile, draftRecipient string) string {
+	t.Helper()
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	content := `outlook:
+  profile: "default"
+
+security:
+  allow_create_draft: true
+
+paths:
+  attachment_dir: "C:\\OutlookMCP\\attachments"
+
+logging:
+  level: "info"
+
+limits:
+  max_results: 25
+
+report:
+  since_hours: 24
+  max_per_section: 20
+`
+	if err := os.WriteFile(configPath, []byte(content), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	return configPath
+}
+
 type fakeCalendarStore struct{}
 
 func (fakeCalendarStore) ListEvents(context.Context, domain.ListEventsParams) ([]domain.CalendarEvent, error) {

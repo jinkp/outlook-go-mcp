@@ -83,3 +83,9 @@ type MailFolder struct {
 	ParentEntryID string
 	FolderType    int
 }
+
+type ListEmailsInRangeParams struct {
+	Since      time.Time
+	Until      time.Time
+	MaxResults int
+}

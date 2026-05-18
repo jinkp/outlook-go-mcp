@@ -844,6 +844,10 @@ func (m *mockMailStore) DeleteEmail(_ context.Context, id string) error {
 	return m.deleteEmailErr
 }
 
+func (m *mockMailStore) ListEmailsInRange(_ context.Context, _ domain.ListEmailsInRangeParams) ([]domain.Email, error) {
+	return nil, nil
+}
+
 type mockCalendarStore struct {
 	listEventsResult  []domain.CalendarEvent
 	listEventsErr     error

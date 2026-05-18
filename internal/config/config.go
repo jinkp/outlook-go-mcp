@@ -21,6 +21,31 @@ type Config struct {
 	Paths    PathsConfig    `yaml:"paths"`
 	Logging  LoggingConfig  `yaml:"logging"`
 	Limits   LimitsConfig   `yaml:"limits"`
+	Report   ReportConfig   `yaml:"report"`
+}
+
+type ReportConfig struct {
+	OutputFile     string   `yaml:"output_file"`
+	DraftRecipient string   `yaml:"draft_recipient"`
+	SinceHours     int      `yaml:"since_hours"`
+	VIPSenders     []string `yaml:"vip_senders"`
+	MaxPerSection  int      `yaml:"max_per_section"`
+}
+
+func (r ReportConfig) Validate() error {
+	if r.SinceHours < 1 || r.SinceHours > 168 {
+		return fmt.Errorf("report.since_hours must be between 1 and 168")
+	}
+
+	if r.MaxPerSection < 1 || r.MaxPerSection > 500 {
+		return fmt.Errorf("report.max_per_section must be between 1 and 500")
+	}
+
+	if r.OutputFile != "" && !filepath.IsAbs(r.OutputFile) {
+		return fmt.Errorf("report.output_file must be an absolute path")
+	}
+
+	return nil
 }
 
 type OutlookConfig struct {

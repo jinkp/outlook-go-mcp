@@ -43,3 +43,22 @@ limits:
   # Maximum items returned by list/search tools when the caller asks for more.
   # Allowed range: 1..500.
   max_results: 50
+
+# Daily report generation settings.
+# The `outlook-mcp report` subcommand uses this section.
+report:
+  # How many hours back to look for emails. Range: 1–168 (1 week). Default: 24.
+  since_hours: 24
+  # Absolute path where the Markdown report file is written.
+  # Required unless draft_recipient is set. Must be an absolute path.
+  output_file: "C:\\Reports\\daily-report.md"
+  # Email address to receive the report as an Outlook draft.
+  # If set, requires security.allow_create_draft = true.
+  # Leave empty to skip draft creation.
+  draft_recipient: ""
+  # List of senders whose emails are always highlighted.
+  # Supports exact address (boss@company.com) or domain suffix (@partner.com).
+  vip_senders: []
+  # Maximum number of items per section (unanswered, VIP, attachments, threads, calendar).
+  # Range: 1–500. Default: 20.
+  max_per_section: 20

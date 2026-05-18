@@ -596,6 +596,75 @@ func (s *outlookMailStore) DeleteEmail(ctx context.Context, id string) error {
 	})
 }
 
+func (s *outlookMailStore) ListEmailsInRange(ctx context.Context, params domain.ListEmailsInRangeParams) ([]domain.Email, error) {
+	if params.Since.IsZero() {
+		return nil, fmt.Errorf("%w: since is required", ErrInvalidParams)
+	}
+	if !params.Until.IsZero() && params.Since.After(params.Until) {
+		return nil, fmt.Errorf("%w: since must be before until", ErrInvalidParams)
+	}
+	if params.MaxResults <= 0 {
+		params.MaxResults = defaultMailSearchMaxResults
+	}
+
+	var emails []domain.Email
+	err := s.submit(ctx, func() error {
+		session, err := s.connectedSession()
+		if err != nil {
+			return err
+		}
+
+		// Use the inbox folder as the search base for all mail
+		inbox, err := dispatchCall(session.mapi, "GetDefaultFolder", olFolderInbox)
+		if err != nil {
+			return wrapCOMError("get inbox folder", err)
+		}
+		defer inbox.Release()
+
+		items, err := dispatchProperty(inbox, "Items")
+		if err != nil {
+			return err
+		}
+		defer items.Release()
+
+		_, _ = oleutil.CallMethod(items, "Sort", "[ReceivedTime]", true)
+
+		filter := fmt.Sprintf("[ReceivedTime] >= '%s'", formatOutlookTime(params.Since))
+		if !params.Until.IsZero() {
+			filter += fmt.Sprintf(" AND [ReceivedTime] <= '%s'", formatOutlookTime(params.Until))
+		}
+
+		restricted, err := dispatchCall(items, "Restrict", filter)
+		if err != nil {
+			return wrapCOMError("restrict mail items by time range", err)
+		}
+		defer restricted.Release()
+
+		count, err := intProperty(restricted, "Count")
+		if err != nil {
+			return err
+		}
+
+		for i := 1; i <= count && len(emails) < params.MaxResults; i++ {
+			item, err := dispatchIndexedProperty(restricted, "Item", i)
+			if err != nil {
+				continue
+			}
+			record, mapErr := mapMailSummary(item)
+			item.Release()
+			if mapErr != nil {
+				continue
+			}
+			emails = append(emails, mapMailRecordToEmail(record))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return emails, nil
+}
+
 // resolveAnyFolder walks all top-level mail stores and their immediate children (depth-2)
 // to find a folder matching name (case-insensitive). Returns ErrNotFound if no match.
 func resolveAnyFolder(session *outlookSession, name string) (*ole.IDispatch, error) {

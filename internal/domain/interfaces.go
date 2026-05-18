@@ -15,6 +15,7 @@ type MailStore interface {
 	ListFolders(ctx context.Context) ([]MailFolder, error)
 	DownloadAttachment(ctx context.Context, params DownloadAttachmentParams) (*DownloadedAttachment, error)
 	DeleteEmail(ctx context.Context, id string) error
+	ListEmailsInRange(ctx context.Context, params ListEmailsInRangeParams) ([]Email, error)
 }
 
 type CalendarStore interface {

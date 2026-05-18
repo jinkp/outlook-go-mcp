@@ -65,6 +65,10 @@ func (mailStoreContract) DeleteEmail(context.Context, string) error {
 	return nil
 }
 
+func (mailStoreContract) ListEmailsInRange(context.Context, domain.ListEmailsInRangeParams) ([]domain.Email, error) {
+	return nil, nil
+}
+
 type calendarStoreContract struct{}
 
 func (calendarStoreContract) ListEvents(context.Context, ListEventsParams) ([]CalendarEvent, error) {

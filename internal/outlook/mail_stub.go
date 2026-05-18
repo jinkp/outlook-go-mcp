@@ -111,3 +111,10 @@ func (s *outlookMailStore) DeleteEmail(ctx context.Context, id string) error {
 	}
 	return ErrNotConnected
 }
+
+func (s *outlookMailStore) ListEmailsInRange(ctx context.Context, params domain.ListEmailsInRangeParams) ([]domain.Email, error) {
+	if err := s.submit(ctx, func() error { return ErrNotConnected }); err != nil {
+		return nil, err
+	}
+	return nil, ErrNotConnected
+}

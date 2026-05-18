@@ -354,6 +354,49 @@ func TestDeleteEmailReturnsErrInvalidParamsWhenIDEmpty(t *testing.T) {
 	}
 }
 
+func TestListEmailsInRangeReturnsErrInvalidParamsWhenSinceIsZero(t *testing.T) {
+	store := &outlookMailStore{executor: &fakeCOMExecutor{started: true}}
+
+	_, err := store.ListEmailsInRange(context.Background(), ListEmailsInRangeParams{
+		Since:      time.Time{}, // zero
+		MaxResults: 10,
+	})
+
+	if !errors.Is(err, ErrInvalidParams) {
+		t.Fatalf("ListEmailsInRange() error = %v, want %v", err, ErrInvalidParams)
+	}
+}
+
+func TestListEmailsInRangeReturnsErrInvalidParamsWhenDateRangeIsReversed(t *testing.T) {
+	store := &outlookMailStore{executor: &fakeCOMExecutor{started: true}}
+	since := time.Date(2026, time.May, 18, 0, 0, 0, 0, time.UTC)
+	until := time.Date(2026, time.May, 17, 0, 0, 0, 0, time.UTC) // before since
+
+	_, err := store.ListEmailsInRange(context.Background(), ListEmailsInRangeParams{
+		Since:      since,
+		Until:      until,
+		MaxResults: 10,
+	})
+
+	if !errors.Is(err, ErrInvalidParams) {
+		t.Fatalf("ListEmailsInRange() error = %v, want %v", err, ErrInvalidParams)
+	}
+}
+
+func TestListEmailsInRangeReturnsErrNotConnectedWhenExecutorNotStarted(t *testing.T) {
+	store := &outlookMailStore{executor: &fakeCOMExecutor{started: false}}
+	since := time.Date(2026, time.May, 17, 0, 0, 0, 0, time.UTC)
+
+	_, err := store.ListEmailsInRange(context.Background(), ListEmailsInRangeParams{
+		Since:      since,
+		MaxResults: 10,
+	})
+
+	if !errors.Is(err, ErrNotConnected) {
+		t.Fatalf("ListEmailsInRange() error = %v, want %v", err, ErrNotConnected)
+	}
+}
+
 type fakeCOMExecutor struct{ started bool }
 
 func (f *fakeCOMExecutor) Submit(ctx context.Context, fn func() error) error {

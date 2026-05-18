@@ -13,6 +13,7 @@ const (
 	olMailItem    = 0
 	olFormatPlain = 1
 	olFolderInbox = 6
+	olFolderSentMail = 5
 
 	defaultMailSearchMaxResults = 20
 

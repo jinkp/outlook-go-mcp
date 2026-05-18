@@ -214,6 +214,79 @@ unknown_top_level_key: "this should be rejected"
 	}
 }
 
+func TestReportConfigValidateAcceptsValidConfig(t *testing.T) {
+	cfg := ReportConfig{
+		OutputFile:    "C:\\Reports\\daily.md",
+		SinceHours:   24,
+		MaxPerSection: 20,
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want nil", err)
+	}
+}
+
+func TestReportConfigValidateRejectsSinceHoursBelowMinimum(t *testing.T) {
+	tests := []struct {
+		name       string
+		sinceHours int
+	}{
+		{name: "zero", sinceHours: 0},
+		{name: "negative", sinceHours: -1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := ReportConfig{SinceHours: tt.sinceHours, OutputFile: "C:\\Reports\\r.md"}
+			if err := cfg.Validate(); err == nil {
+				t.Fatalf("Validate() error = nil, want error for since_hours=%d", tt.sinceHours)
+			}
+		})
+	}
+}
+
+func TestReportConfigValidateRejectsSinceHoursAboveMaximum(t *testing.T) {
+	cfg := ReportConfig{SinceHours: 200, OutputFile: "C:\\Reports\\r.md"}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want error for since_hours=200")
+	}
+}
+
+func TestReportConfigValidateRejectsRelativeOutputFile(t *testing.T) {
+	cfg := ReportConfig{SinceHours: 24, MaxPerSection: 20, OutputFile: "relative/path.md"}
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error for relative output_file")
+	}
+	if !strings.Contains(err.Error(), "absolute") {
+		t.Fatalf("Validate() error = %q, want it to contain 'absolute'", err.Error())
+	}
+}
+
+func TestReportConfigValidateRejectsMaxPerSectionOutOfRange(t *testing.T) {
+	tests := []struct {
+		name          string
+		maxPerSection int
+	}{
+		{name: "zero", maxPerSection: 0},
+		{name: "too large", maxPerSection: 501},
+		{name: "negative", maxPerSection: -5},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := ReportConfig{SinceHours: 24, OutputFile: "C:\\Reports\\r.md", MaxPerSection: tt.maxPerSection}
+			if err := cfg.Validate(); err == nil {
+				t.Fatalf("Validate() error = nil, want error for max_per_section=%d", tt.maxPerSection)
+			}
+		})
+	}
+}
+
+func TestReportConfigValidateAcceptsEmptyOutputFileWithDraftRecipient(t *testing.T) {
+	cfg := ReportConfig{SinceHours: 24, MaxPerSection: 20, DraftRecipient: "boss@example.com"}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want nil when draft_recipient is set", err)
+	}
+}
+
 func TestLoadAcceptsMaxResultsAtUpperBound(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.yaml")
