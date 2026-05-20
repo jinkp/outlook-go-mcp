@@ -14,16 +14,16 @@ func TestREADMEIncludesRequiredSections(t *testing.T) {
 
 	content := string(data)
 	requiredSections := []string{
-		"# Outlook MCP Server (Go)",
+		"# outlook-mcp",
+		"## Install",
 		"## Prerequisites",
-		"## Installation",
-		"## Configuration",
-		"## Available Tools",
-		"## Usage with OpenCode",
-		"## Usage with Claude Desktop",
-		"## Security",
-		"## Testing",
+		"## Setup",
+		"## Tools (15)",
+		"## Daily Report",
+		"## Configuration reference",
+		"## CLI reference",
 		"## Architecture",
+		"## Security notes",
 	}
 
 	for _, section := range requiredSections {

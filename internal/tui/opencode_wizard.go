@@ -184,8 +184,7 @@ func (m OpenCodeWizardModel) viewConfirm() string {
   "mcp": {
     "outlook-mcp": {
       "type": "local",
-      "command": "outlook-mcp",
-      "args": ["mcp"]
+      "command": ["outlook-mcp", "mcp"]
     }
   }
 }`)

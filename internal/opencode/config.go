@@ -19,10 +19,10 @@ const (
 )
 
 // mcpEntry is the MCP server descriptor written into opencode.json.
+// OpenCode requires command to be an array (binary + args combined), not a string.
 type mcpEntry struct {
 	Type    string   `json:"type"`
-	Command string   `json:"command"`
-	Args    []string `json:"args"`
+	Command []string `json:"command"`
 }
 
 // GlobalPath returns the path to the global opencode.json file.
@@ -79,7 +79,7 @@ func Load(path string) (map[string]json.RawMessage, error) {
 	return m, nil
 }
 
-// Save merges {"mcp":{"outlook-mcp":{"type":"local","command":"outlook-mcp","args":["mcp"]}}}
+// Save merges {"mcp":{"outlook-mcp":{"type":"local","command":["outlook-mcp","mcp"]}}}
 // into the opencode.json file at the path determined by scope, preserving all other keys.
 // Creates the file and its parent directory if missing.
 func Save(scope Scope) error {
@@ -94,11 +94,11 @@ func Save(scope Scope) error {
 		return err
 	}
 
-	// Build the outlook-mcp entry
+	// Build the outlook-mcp entry.
+	// OpenCode requires command as an array: ["binary", "subcommand", ...args].
 	entry := mcpEntry{
 		Type:    "local",
-		Command: "outlook-mcp",
-		Args:    []string{"mcp"},
+		Command: []string{"outlook-mcp", "mcp"},
 	}
 
 	// Unmarshal the existing mcp map (if present), then set the outlook-mcp key
