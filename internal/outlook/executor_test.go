@@ -9,7 +9,9 @@ import (
 	"time"
 )
 
-func TestCOMExecutorStartCallsSessionConnect(t *testing.T) {
+func TestCOMExecutorStartDoesNotConnectEagerly(t *testing.T) {
+	// Lazy connect: Start() must not call session.Connect().
+	// The connection happens on the first Submit() call.
 	session := &fakeOutlookSession{}
 	executor := NewCOMExecutor(session)
 
@@ -18,8 +20,31 @@ func TestCOMExecutorStartCallsSessionConnect(t *testing.T) {
 	}
 	defer executor.Stop()
 
+	if session.connectCalls != 0 {
+		t.Fatalf("connectCalls = %d after Start(), want 0 (lazy connect)", session.connectCalls)
+	}
+}
+
+func TestCOMExecutorSubmitConnectsLazilyOnFirstCall(t *testing.T) {
+	// First Submit() should trigger Connect() exactly once.
+	session := &fakeOutlookSession{}
+	executor := NewCOMExecutor(session)
+
+	if err := executor.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer executor.Stop()
+
+	_ = executor.Submit(context.Background(), func() error { return nil })
+
 	if session.connectCalls != 1 {
-		t.Fatalf("connectCalls = %d, want 1", session.connectCalls)
+		t.Fatalf("connectCalls = %d after first Submit(), want 1", session.connectCalls)
+	}
+
+	// Second Submit() must NOT reconnect.
+	_ = executor.Submit(context.Background(), func() error { return nil })
+	if session.connectCalls != 1 {
+		t.Fatalf("connectCalls = %d after second Submit(), want still 1", session.connectCalls)
 	}
 }
 

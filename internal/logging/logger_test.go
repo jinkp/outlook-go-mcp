@@ -28,7 +28,7 @@ func TestNewWritesJSONLogsToStderrOnly(t *testing.T) {
 		os.Stderr = originalStderr
 	}()
 
-	logger, err := New("info")
+	logger, err := New("info", "")
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -74,7 +74,7 @@ func TestNewFiltersBelowConfiguredLevel(t *testing.T) {
 		os.Stderr = originalStderr
 	}()
 
-	logger, err := New("warn")
+	logger, err := New("warn", "")
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -101,7 +101,7 @@ func TestNewFiltersBelowConfiguredLevel(t *testing.T) {
 }
 
 func TestNewRejectsInvalidLevel(t *testing.T) {
-	if _, err := New("verbose"); err == nil {
+	if _, err := New("verbose", ""); err == nil {
 		t.Fatal("New() error = nil, want invalid level error")
 	}
 }

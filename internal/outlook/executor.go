@@ -29,20 +29,14 @@ func NewCOMExecutor(session OutlookSession) *COMExecutor {
 	}
 }
 
+// Start launches the COM worker goroutine WITHOUT connecting to Outlook.
+// The connection is established lazily on the first Submit() call.
+// This allows the MCP server to start successfully even when Outlook is not running.
 func (e *COMExecutor) Start() error {
-	ready := make(chan error, 1)
-
 	e.wg.Add(1)
 	go func() {
 		runtime.LockOSThread()
 		defer e.wg.Done()
-
-		if err := e.session.Connect(); err != nil {
-			ready <- err
-			return
-		}
-
-		ready <- nil
 
 		for {
 			select {
@@ -50,12 +44,19 @@ func (e *COMExecutor) Start() error {
 				_ = e.session.Close()
 				return
 			case job := <-e.jobs:
+				// Connect lazily on first job if not already connected.
+				if !e.session.IsConnected() {
+					if err := e.session.Connect(); err != nil {
+						job.Result <- err
+						continue
+					}
+				}
 				job.Result <- job.Fn()
 			}
 		}
 	}()
 
-	return <-ready
+	return nil // always succeeds — connection is deferred
 }
 
 func (e *COMExecutor) Stop() {

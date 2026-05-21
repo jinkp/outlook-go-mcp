@@ -70,7 +70,8 @@ type PathsConfig struct {
 }
 
 type LoggingConfig struct {
-	Level string `yaml:"level"`
+	Level   string `yaml:"level"`
+	LogFile string `yaml:"log_file"`
 }
 
 type LimitsConfig struct {

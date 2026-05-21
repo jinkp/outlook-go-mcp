@@ -20,7 +20,7 @@ func TestBootstrapReturnsApplicationForValidConfig(t *testing.T) {
 	fakeServer := &fakeMCPServer{}
 	fakeExecutor := &fakeExecutor{}
 
-	app, err := bootstrap(configPath, bootstrapDeps{
+	app, err := bootstrap(configPath, "", bootstrapDeps{
 		loadConfig:   config.Load,
 		newLogger:    loggingNewForTest,
 		newSession:   func() outlook.OutlookSession { return &fakeSession{} },
@@ -61,9 +61,7 @@ func TestBootstrapReturnsApplicationForValidConfig(t *testing.T) {
 	if app == nil {
 		t.Fatal("bootstrap() = nil app")
 	}
-	if !fakeExecutor.started {
-		t.Fatal("executor.Start() was not called")
-	}
+	// executor.Start() is no longer called during bootstrap (lazy connect).
 	if !fakeServer.registered {
 		t.Fatal("server.RegisterTools() was not called")
 	}
@@ -81,7 +79,7 @@ func TestBootstrapReturnsApplicationForValidConfig(t *testing.T) {
 func TestBootstrapReturnsConfigErrorWhenFileMissing(t *testing.T) {
 	missingPath := filepath.Join(t.TempDir(), "missing.yaml")
 
-	_, err := bootstrap(missingPath, productionDeps())
+	_, err := bootstrap(missingPath, "", productionDeps())
 	if err == nil {
 		t.Fatal("bootstrap() error = nil, want missing config error")
 	}
@@ -125,7 +123,7 @@ limits:
 	return configPath
 }
 
-func loggingNewForTest(level string) (*slog.Logger, error) {
+func loggingNewForTest(level, _ string) (*slog.Logger, error) {
 	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})), nil
 }
 

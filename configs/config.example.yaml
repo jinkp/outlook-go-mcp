@@ -36,7 +36,12 @@ paths:
 # Structured logging configuration.
 logging:
   # Supported levels: debug, info, warn, error.
+  # Use "debug" to capture detailed startup and tool-call traces.
   level: "info"
+  # Optional: absolute path to a log file. Logs are written to stderr AND this file.
+  # Useful for diagnosing MCP startup failures when stderr is not visible (e.g. OpenCode).
+  # Example: log_file: "C:\\Logs\\outlook-mcp.log"
+  log_file: ""
 
 # Runtime safety limits.
 limits:

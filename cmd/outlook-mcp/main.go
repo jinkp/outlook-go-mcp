@@ -46,7 +46,7 @@ type mcpServer interface {
 
 type bootstrapDeps struct {
 	loadConfig       func(string) (*config.Config, error)
-	newLogger        func(string) (*slog.Logger, error)
+	newLogger        func(level string, logFile string) (*slog.Logger, error)
 	newSession       func() outlook.OutlookSession
 	newExecutor      func(outlook.OutlookSession) executorController
 	newMailStore     func(executorController) domain.MailStore
@@ -122,9 +122,10 @@ func newRootCmd() *cobra.Command {
 // newMCPCmd returns the `outlook-mcp mcp` subcommand.
 //
 // CRITICAL: This command MUST NOT write ANYTHING to stdout before the server starts.
-// The MCP stdio transport owns stdout entirely. All diagnostics go to stderr.
+// The MCP stdio transport owns stdout entirely. All diagnostics go to stderr (and log file).
 func newMCPCmd() *cobra.Command {
 	var configPath string
+	var logFile string
 
 	cmd := &cobra.Command{
 		Use:          "mcp",
@@ -134,7 +135,18 @@ func newMCPCmd() *cobra.Command {
 			// Redirect default logger to stderr — belt-and-suspenders guard.
 			log.SetOutput(os.Stderr)
 
-			code := run(configPath, os.Stderr, productionDeps())
+			// Pre-bootstrap logger: writes to stderr (and log file if set) BEFORE config loads.
+			// Captures failures that happen before the real slog logger is ready.
+			pre := logging.NewPreBootstrap(logFile)
+			pre.Debug("outlook-mcp starting",
+				slog.String("version", version.Version),
+				slog.String("config_path", configPath),
+				slog.String("log_file", logFile),
+				slog.Int("pid", os.Getpid()),
+				slog.String("exe", func() string { p, _ := os.Executable(); return p }()),
+			)
+
+			code := run(configPath, logFile, os.Stderr, productionDeps())
 			if code != 0 {
 				os.Exit(code)
 			}
@@ -143,6 +155,7 @@ func newMCPCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&configPath, "config", "config.yaml", "Path to YAML configuration file")
+	cmd.Flags().StringVar(&logFile, "log-file", "", "Append structured JSON logs to this file (useful for debugging MCP startup)")
 	return cmd
 }
 
@@ -318,12 +331,13 @@ func newSetupConfigCmd() *cobra.Command {
 	}
 }
 
-func run(configPath string, stderr io.Writer, deps bootstrapDeps) int {
-	app, err := bootstrap(configPath, deps)
+func run(configPath string, logFile string, stderr io.Writer, deps bootstrapDeps) int {
+	app, err := bootstrap(configPath, logFile, deps)
 	if err != nil {
 		reportBootstrapError(stderr, err)
 		return 1
 	}
+	defer app.executor.Stop()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -337,11 +351,13 @@ func run(configPath string, stderr io.Writer, deps bootstrapDeps) int {
 		}
 	}()
 	defer close(shutdownComplete)
-	defer app.executor.Stop()
 
-	app.logger.Info("Outlook MCP server starting",
+	app.logger.Info("Outlook MCP server ready",
+		slog.String("version", version.Version),
 		slog.String("config_path", app.configPath),
 		slog.Int("tool_count", len(mcp.ToolDefinitions())),
+		slog.String("outlook_profile", app.config.Outlook.Profile),
+		slog.String("log_level", app.config.Logging.Level),
 	)
 
 	if err := app.server.Serve(ctx); err != nil && !errors.Is(err, context.Canceled) {
@@ -349,25 +365,43 @@ func run(configPath string, stderr io.Writer, deps bootstrapDeps) int {
 		return 1
 	}
 
+	app.logger.Info("Outlook MCP server stopped cleanly")
 	return 0
 }
 
-func bootstrap(configPath string, deps bootstrapDeps) (*application, error) {
+func bootstrap(configPath string, logFile string, deps bootstrapDeps) (*application, error) {
 	cfg, err := deps.loadConfig(configPath)
 	if err != nil {
 		return nil, &bootstrapError{stage: stageConfigLoad, err: err}
 	}
 
-	logger, err := deps.newLogger(cfg.Logging.Level)
+	// --log-file flag takes priority over logging.log_file in config.
+	resolvedLogFile := logFile
+	if resolvedLogFile == "" {
+		resolvedLogFile = cfg.Logging.LogFile
+	}
+
+	logger, err := deps.newLogger(cfg.Logging.Level, resolvedLogFile)
 	if err != nil {
 		return nil, &bootstrapError{stage: stageLoggerInit, err: err}
 	}
 
+	logger.Debug("config loaded",
+		slog.String("outlook_profile", cfg.Outlook.Profile),
+		slog.String("attachment_dir", cfg.Paths.AttachmentDir),
+		slog.String("log_level", cfg.Logging.Level),
+		slog.Int("max_results", cfg.Limits.MaxResults),
+	)
+
+	// Lazy connect: executor.Start() is NOT called here.
+	// The COMExecutor connects to Outlook on the first tool call.
+	// This allows the MCP server to start and report "connected" to the AI client
+	// even when Outlook is not yet open. Tools will return ErrNotConnected until
+	// Outlook is running and the executor has connected.
 	session := deps.newSession()
 	executor := deps.newExecutor(session)
-	if err := executor.Start(); err != nil {
-		return nil, &bootstrapError{stage: stageExecutorStart, err: err, logger: logger}
-	}
+
+	logger.Debug("executor created — Outlook connection deferred to first tool call")
 
 	mailStore := deps.newMailStore(executor)
 	calendarStore := deps.newCalendarStore(executor)
@@ -382,6 +416,8 @@ func bootstrap(configPath string, deps bootstrapDeps) (*application, error) {
 
 	server := deps.newServer(&handlers)
 	server.RegisterTools()
+
+	logger.Debug("MCP server ready", slog.Int("tool_count", len(mcp.ToolDefinitions())))
 
 	return &application{
 		configPath: configPath,
@@ -433,7 +469,7 @@ func newReportCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			log.SetOutput(os.Stderr)
 
-			app, err := bootstrap(configPath, productionDeps())
+			app, err := bootstrap(configPath, "", productionDeps())
 			if err != nil {
 				reportBootstrapError(os.Stderr, err)
 				return err
@@ -514,7 +550,7 @@ func newReportCmd() *cobra.Command {
 func productionDeps() bootstrapDeps {
 	return bootstrapDeps{
 		loadConfig: config.Load,
-		newLogger:  logging.New,
+		newLogger:  func(level, logFile string) (*slog.Logger, error) { return logging.New(level, logFile) },
 		newSession: outlook.NewOutlookSession,
 		newExecutor: func(session outlook.OutlookSession) executorController {
 			return outlook.NewCOMExecutor(session)
