@@ -115,6 +115,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newTUICmd())
 	root.AddCommand(newSetupCmd())
 	root.AddCommand(newReportCmd())
+	root.AddCommand(newStatusCmd())
 
 	return root
 }
@@ -126,6 +127,7 @@ func newRootCmd() *cobra.Command {
 func newMCPCmd() *cobra.Command {
 	var configPath string
 	var logFile string
+	var dryRun bool
 
 	cmd := &cobra.Command{
 		Use:          "mcp",
@@ -146,6 +148,10 @@ func newMCPCmd() *cobra.Command {
 				slog.String("exe", func() string { p, _ := os.Executable(); return p }()),
 			)
 
+			if dryRun {
+				return runDryRun(configPath, logFile, cmd.OutOrStdout(), productionDeps())
+			}
+
 			code := run(configPath, logFile, os.Stderr, productionDeps())
 			if code != 0 {
 				os.Exit(code)
@@ -156,6 +162,7 @@ func newMCPCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&configPath, "config", "config.yaml", "Path to YAML configuration file")
 	cmd.Flags().StringVar(&logFile, "log-file", "", "Append structured JSON logs to this file (useful for debugging MCP startup)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Validate bootstrap (config, logger, executor) and exit without starting the server")
 	return cmd
 }
 
@@ -393,15 +400,18 @@ func bootstrap(configPath string, logFile string, deps bootstrapDeps) (*applicat
 		slog.Int("max_results", cfg.Limits.MaxResults),
 	)
 
-	// Lazy connect: executor.Start() is NOT called here.
-	// The COMExecutor connects to Outlook on the first tool call.
+	// Lazy connect: Start() launches the worker goroutine but does NOT connect
+	// to Outlook. The COM connection is established on the first Submit() call.
 	// This allows the MCP server to start and report "connected" to the AI client
-	// even when Outlook is not yet open. Tools will return ErrNotConnected until
-	// Outlook is running and the executor has connected.
+	// even when Outlook is not yet open.
 	session := deps.newSession()
 	executor := deps.newExecutor(session)
 
-	logger.Debug("executor created — Outlook connection deferred to first tool call")
+	if err := executor.Start(); err != nil {
+		return nil, &bootstrapError{stage: stageExecutorStart, err: err, logger: logger}
+	}
+
+	logger.Debug("executor started — Outlook connection deferred to first tool call")
 
 	mailStore := deps.newMailStore(executor)
 	calendarStore := deps.newCalendarStore(executor)
@@ -544,6 +554,115 @@ func newReportCmd() *cobra.Command {
 	cmd.Flags().StringVar(&outputOverride, "output", "", "Write report to this file path (overrides config)")
 	cmd.Flags().StringVar(&draftOverride, "draft", "", "Create Outlook draft to this email (overrides config)")
 	cmd.Flags().IntVar(&sinceOverride, "since", 0, "Lookback window in hours (overrides config)")
+	return cmd
+}
+
+// runDryRun performs the full bootstrap (config, logger, executor) and validates
+// connectivity by submitting a no-op job to the COM executor. It prints the
+// result and exits without starting the MCP stdio server.
+func runDryRun(configPath, logFile string, w io.Writer, deps bootstrapDeps) error {
+	app, err := bootstrap(configPath, logFile, deps)
+	if err != nil {
+		fmt.Fprintf(w, "dry-run FAIL: bootstrap error: %v\n", err)
+		return err
+	}
+	defer app.executor.Stop()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Submit a lightweight search to force the lazy COM connection.
+	_, connErr := app.Mail.SearchEmails(ctx, domain.SearchEmailsParams{Query: "subject:__dry_run_ping__"})
+	if connErr != nil {
+		fmt.Fprintf(w, "dry-run FAIL: Outlook connection error: %v\n", connErr)
+		return connErr
+	}
+
+	fmt.Fprintf(w, "dry-run OK\n")
+	fmt.Fprintf(w, "  config:   %s\n", app.configPath)
+	fmt.Fprintf(w, "  version:  %s\n", version.Version)
+	fmt.Fprintf(w, "  profile:  %s\n", app.config.Outlook.Profile)
+	fmt.Fprintf(w, "  tools:    %d\n", len(mcp.ToolDefinitions()))
+	fmt.Fprintf(w, "  outlook:  connected\n")
+	return nil
+}
+
+// newStatusCmd returns the `outlook-mcp status` subcommand — a quick health
+// check that validates config, starts the COM executor, connects to Outlook,
+// and prints a diagnostic summary.
+func newStatusCmd() *cobra.Command {
+	var configPath string
+
+	cmd := &cobra.Command{
+		Use:          "status",
+		Short:        "Check Outlook connectivity and print diagnostic info",
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			w := cmd.OutOrStdout()
+
+			fmt.Fprintln(w, "outlook-mcp status")
+			fmt.Fprintln(w, strings.Repeat("-", 40))
+
+			// Step 1: config
+			fmt.Fprintf(w, "  config:     ")
+			cfg, err := config.Load(configPath)
+			if err != nil {
+				fmt.Fprintf(w, "FAIL (%v)\n", err)
+				return err
+			}
+			fmt.Fprintf(w, "OK (%s)\n", configPath)
+
+			// Step 2: version
+			fmt.Fprintf(w, "  version:    %s\n", version.Version)
+			fmt.Fprintf(w, "  profile:    %s\n", cfg.Outlook.Profile)
+			fmt.Fprintf(w, "  tools:      %d\n", len(mcp.ToolDefinitions()))
+
+			// Step 3: COM executor + Outlook connection
+			fmt.Fprintf(w, "  outlook:    ")
+
+			session := outlook.NewOutlookSession()
+			executor := outlook.NewCOMExecutor(session)
+
+			if err := executor.Start(); err != nil {
+				fmt.Fprintf(w, "FAIL (executor: %v)\n", err)
+				return err
+			}
+			defer executor.Stop()
+
+			mailStore := outlook.NewMailStore(executor)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			// Submit a lightweight search to force the lazy COM connection.
+			_, connErr := mailStore.SearchEmails(ctx, domain.SearchEmailsParams{Query: "subject:__status_ping__"})
+			if connErr != nil {
+				fmt.Fprintf(w, "FAIL (%v)\n", connErr)
+				return connErr
+			}
+			fmt.Fprintln(w, "connected")
+
+			// Step 4: security summary
+			fmt.Fprintln(w)
+			fmt.Fprintln(w, "  security policy:")
+			fmt.Fprintf(w, "    send_email:      %v\n", cfg.Security.AllowSendEmail)
+			fmt.Fprintf(w, "    create_draft:    %v\n", cfg.Security.AllowCreateDraft)
+			fmt.Fprintf(w, "    create_event:    %v\n", cfg.Security.AllowCreateEvent)
+			fmt.Fprintf(w, "    save_attachment: %v\n", cfg.Security.AllowSaveAttachment)
+			fmt.Fprintf(w, "    reply_draft:     %v\n", cfg.Security.AllowReplyDraft)
+			fmt.Fprintf(w, "    forward_draft:   %v\n", cfg.Security.AllowForwardDraft)
+			fmt.Fprintf(w, "    mark_read:       %v\n", cfg.Security.AllowMarkRead)
+			fmt.Fprintf(w, "    flag_email:      %v\n", cfg.Security.AllowFlagEmail)
+			fmt.Fprintf(w, "    move_email:      %v\n", cfg.Security.AllowMoveEmail)
+			fmt.Fprintf(w, "    delete_email:    %v\n", cfg.Security.AllowDeleteEmail)
+
+			fmt.Fprintln(w)
+			fmt.Fprintln(w, "All checks passed.")
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&configPath, "config", "config.yaml", "Path to config.yaml")
 	return cmd
 }
 

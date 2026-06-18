@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jinkp/outlook-go-mcp/internal/config"
@@ -61,7 +63,9 @@ func TestBootstrapReturnsApplicationForValidConfig(t *testing.T) {
 	if app == nil {
 		t.Fatal("bootstrap() = nil app")
 	}
-	// executor.Start() is no longer called during bootstrap (lazy connect).
+	if !fakeExecutor.started {
+		t.Fatal("executor.Start() was not called during bootstrap")
+	}
 	if !fakeServer.registered {
 		t.Fatal("server.RegisterTools() was not called")
 	}
@@ -73,6 +77,42 @@ func TestBootstrapReturnsApplicationForValidConfig(t *testing.T) {
 	}
 	if app.configPath != configPath {
 		t.Fatalf("configPath = %q, want %q", app.configPath, configPath)
+	}
+}
+
+func TestBootstrapReturnsExecutorStartError(t *testing.T) {
+	configPath := writeMainTestConfig(t)
+	wantErr := errors.New("executor start failed")
+
+	_, err := bootstrap(configPath, "", bootstrapDeps{
+		loadConfig:   config.Load,
+		newLogger:    loggingNewForTest,
+		newSession:   func() outlook.OutlookSession { return &fakeSession{} },
+		newExecutor:  func(outlook.OutlookSession) executorController { return &fakeExecutor{startErr: wantErr} },
+		newMailStore: func(executorController) domain.MailStore { return fakeMailStore{} },
+		newCalendarStore: func(executorController) domain.CalendarStore {
+			return fakeCalendarStore{}
+		},
+		newPolicyGate: func(cfg config.Config) security.PolicyGate {
+			return security.NewPolicyGate(cfg)
+		},
+		newServer: func(handlers *mcp.Handlers) mcpServer {
+			return &fakeMCPServer{}
+		},
+	})
+	if err == nil {
+		t.Fatal("bootstrap() error = nil, want executor start error")
+	}
+
+	var bootstrapErr *bootstrapError
+	if !errors.As(err, &bootstrapErr) {
+		t.Fatalf("bootstrap() error type = %T, want *bootstrapError", err)
+	}
+	if bootstrapErr.stage != stageExecutorStart {
+		t.Fatalf("stage = %q, want %q", bootstrapErr.stage, stageExecutorStart)
+	}
+	if !errors.Is(bootstrapErr.err, wantErr) {
+		t.Fatalf("underlying error = %v, want %v", bootstrapErr.err, wantErr)
 	}
 }
 
@@ -278,6 +318,165 @@ report:
 		t.Fatalf("write config: %v", err)
 	}
 	return configPath
+}
+
+func TestRunDryRunPrintsOKOnSuccess(t *testing.T) {
+	configPath := writeMainTestConfig(t)
+
+	var buf bytes.Buffer
+	err := runDryRun(configPath, "", &buf, bootstrapDeps{
+		loadConfig:   config.Load,
+		newLogger:    loggingNewForTest,
+		newSession:   func() outlook.OutlookSession { return &fakeSession{} },
+		newExecutor:  func(outlook.OutlookSession) executorController { return &fakeExecutor{} },
+		newMailStore: func(executorController) domain.MailStore { return fakeMailStore{} },
+		newCalendarStore: func(executorController) domain.CalendarStore {
+			return fakeCalendarStore{}
+		},
+		newPolicyGate: func(cfg config.Config) security.PolicyGate {
+			return security.NewPolicyGate(cfg)
+		},
+		newServer: func(handlers *mcp.Handlers) mcpServer {
+			return &fakeMCPServer{}
+		},
+	})
+	if err != nil {
+		t.Fatalf("runDryRun() error = %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "dry-run OK") {
+		t.Fatalf("output missing 'dry-run OK', got: %s", output)
+	}
+	if !strings.Contains(output, "outlook:  connected") {
+		t.Fatalf("output missing 'outlook:  connected', got: %s", output)
+	}
+}
+
+func TestRunDryRunReportsBootstrapError(t *testing.T) {
+	missingPath := filepath.Join(t.TempDir(), "missing.yaml")
+
+	var buf bytes.Buffer
+	err := runDryRun(missingPath, "", &buf, productionDeps())
+	if err == nil {
+		t.Fatal("runDryRun() error = nil, want config error")
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "dry-run FAIL") {
+		t.Fatalf("output missing 'dry-run FAIL', got: %s", output)
+	}
+}
+
+func TestRunDryRunReportsConnectionError(t *testing.T) {
+	configPath := writeMainTestConfig(t)
+
+	var buf bytes.Buffer
+	err := runDryRun(configPath, "", &buf, bootstrapDeps{
+		loadConfig: config.Load,
+		newLogger:  loggingNewForTest,
+		newSession: func() outlook.OutlookSession { return &fakeSession{} },
+		newExecutor: func(outlook.OutlookSession) executorController {
+			return &fakeExecutor{}
+		},
+		newMailStore: func(executorController) domain.MailStore {
+			return failingMailStore{}
+		},
+		newCalendarStore: func(executorController) domain.CalendarStore {
+			return fakeCalendarStore{}
+		},
+		newPolicyGate: func(cfg config.Config) security.PolicyGate {
+			return security.NewPolicyGate(cfg)
+		},
+		newServer: func(handlers *mcp.Handlers) mcpServer {
+			return &fakeMCPServer{}
+		},
+	})
+	if err == nil {
+		t.Fatal("runDryRun() error = nil, want connection error")
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "dry-run FAIL") {
+		t.Fatalf("output missing 'dry-run FAIL', got: %s", output)
+	}
+}
+
+func TestNewStatusCmdIsRegistered(t *testing.T) {
+	rootCmd := newRootCmd()
+
+	statusCmd, _, err := rootCmd.Find([]string{"status"})
+	if err != nil {
+		t.Fatalf("Find status command: %v", err)
+	}
+	if statusCmd == nil || statusCmd.Use != "status" {
+		t.Fatalf("status command not found or has wrong Use: %v", statusCmd)
+	}
+	if statusCmd.Short == "" {
+		t.Fatal("status command has no Short description")
+	}
+
+	configFlag := statusCmd.Flags().Lookup("config")
+	if configFlag == nil {
+		t.Fatal("status command missing --config flag")
+	}
+}
+
+func TestMCPCmdHasDryRunFlag(t *testing.T) {
+	rootCmd := newRootCmd()
+
+	mcpCmd, _, err := rootCmd.Find([]string{"mcp"})
+	if err != nil {
+		t.Fatalf("Find mcp command: %v", err)
+	}
+
+	dryRunFlag := mcpCmd.Flags().Lookup("dry-run")
+	if dryRunFlag == nil {
+		t.Fatal("mcp command missing --dry-run flag")
+	}
+}
+
+// failingMailStore simulates a mail store that cannot connect to Outlook.
+type failingMailStore struct{}
+
+func (failingMailStore) SearchEmails(context.Context, domain.SearchEmailsParams) ([]domain.Email, error) {
+	return nil, domain.ErrNotConnected
+}
+func (failingMailStore) GetEmail(context.Context, string) (*domain.Email, error) {
+	return nil, domain.ErrNotConnected
+}
+func (failingMailStore) ListAttachments(context.Context, domain.ListAttachmentsParams) ([]domain.Attachment, error) {
+	return nil, domain.ErrNotConnected
+}
+func (failingMailStore) CreateDraft(context.Context, domain.CreateDraftParams) (*domain.Email, error) {
+	return nil, domain.ErrNotConnected
+}
+func (failingMailStore) ReplyDraft(context.Context, domain.ReplyDraftParams) (*domain.Email, error) {
+	return nil, domain.ErrNotConnected
+}
+func (failingMailStore) ForwardDraft(context.Context, domain.ForwardDraftParams) (*domain.Email, error) {
+	return nil, domain.ErrNotConnected
+}
+func (failingMailStore) MarkRead(context.Context, domain.MarkReadParams) error {
+	return domain.ErrNotConnected
+}
+func (failingMailStore) FlagEmail(context.Context, domain.FlagEmailParams) error {
+	return domain.ErrNotConnected
+}
+func (failingMailStore) MoveEmail(context.Context, domain.MoveEmailParams) error {
+	return domain.ErrNotConnected
+}
+func (failingMailStore) ListFolders(context.Context) ([]domain.MailFolder, error) {
+	return nil, domain.ErrNotConnected
+}
+func (failingMailStore) DownloadAttachment(context.Context, domain.DownloadAttachmentParams) (*domain.DownloadedAttachment, error) {
+	return nil, domain.ErrNotConnected
+}
+func (failingMailStore) DeleteEmail(context.Context, string) error {
+	return domain.ErrNotConnected
+}
+func (failingMailStore) ListEmailsInRange(context.Context, domain.ListEmailsInRangeParams) ([]domain.Email, error) {
+	return nil, domain.ErrNotConnected
 }
 
 type fakeCalendarStore struct{}
