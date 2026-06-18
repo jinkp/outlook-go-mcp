@@ -78,15 +78,25 @@ func (s *outlookSession) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.mapi != nil {
-		s.mapi.Release()
-		s.mapi = nil
+	// COM Release can panic with an access violation (0xc0000005) when the
+	// underlying server has disconnected (e.g. Exchange is unreachable, or
+	// Outlook was closed while we held a reference). We recover from this
+	// to ensure a clean shutdown instead of crashing the process.
+	safeRelease := func(d **ole.IDispatch) {
+		if *d == nil {
+			return
+		}
+		defer func() {
+			if r := recover(); r != nil {
+				// COM pointer was stale — nothing to release.
+			}
+		}()
+		(*d).Release()
+		*d = nil
 	}
 
-	if s.ole != nil {
-		s.ole.Release()
-		s.ole = nil
-	}
+	safeRelease(&s.mapi)
+	safeRelease(&s.ole)
 
 	if s.connected {
 		ole.CoUninitialize()

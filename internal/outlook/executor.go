@@ -4,6 +4,7 @@ package outlook
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 	"sync"
 )
@@ -51,12 +52,24 @@ func (e *COMExecutor) Start() error {
 						continue
 					}
 				}
-				job.Result <- job.Fn()
+				job.Result <- safeCall(job.Fn)
 			}
 		}
 	}()
 
 	return nil // always succeeds — connection is deferred
+}
+
+// safeCall executes fn and recovers from COM-induced panics (e.g. access
+// violations when the Exchange server disconnects mid-call). The recovered
+// panic is converted to a regular error so the worker goroutine survives.
+func safeCall(fn func() error) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%w: COM panic recovered: %v", ErrCOMFailure, r)
+		}
+	}()
+	return fn()
 }
 
 func (e *COMExecutor) Stop() {
