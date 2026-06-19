@@ -67,6 +67,34 @@ func (s *outlookSession) Connect() error {
 		return fmt.Errorf("%w: get MAPI namespace returned nil dispatch", ErrCOMFailure)
 	}
 
+	// Validate the MAPI namespace is functional by accessing the Inbox folder
+	// name. Some environments return a valid-looking dispatch that is actually
+	// disconnected from Exchange. This catches it early, before we mark the
+	// session as connected.
+	inboxVariant, err := oleutil.CallMethod(mapiDispatch, "GetDefaultFolder", 6) // olFolderInbox
+	if err != nil {
+		mapiDispatch.Release()
+		appDispatch.Release()
+		ole.CoUninitialize()
+		return fmt.Errorf("%w: MAPI validation failed (GetDefaultFolder): %v", ErrCOMFailure, err)
+	}
+	inboxDispatch := inboxVariant.ToIDispatch()
+	if inboxDispatch == nil {
+		mapiDispatch.Release()
+		appDispatch.Release()
+		ole.CoUninitialize()
+		return fmt.Errorf("%w: MAPI validation failed: GetDefaultFolder returned nil", ErrCOMFailure)
+	}
+	nameVariant, err := oleutil.GetProperty(inboxDispatch, "Name")
+	inboxDispatch.Release()
+	if err != nil {
+		mapiDispatch.Release()
+		appDispatch.Release()
+		ole.CoUninitialize()
+		return fmt.Errorf("%w: MAPI validation failed (Inbox.Name): %v", ErrCOMFailure, err)
+	}
+	nameVariant.Clear()
+
 	s.ole = appDispatch
 	s.mapi = mapiDispatch
 	s.connected = true

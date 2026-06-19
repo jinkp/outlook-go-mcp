@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"runtime/debug"
 	"sync"
 	"time"
 )
@@ -51,6 +52,12 @@ func (e *COMExecutor) Start() error {
 	go func() {
 		runtime.LockOSThread()
 		defer e.wg.Done()
+
+		// PanicOnFault converts hardware faults (access violations, segfaults)
+		// into recoverable Go panics. Without this, a stale COM pointer
+		// dereference (0xc0000005) kills the entire process. With it, safeCall
+		// can recover the panic and return ErrCOMFailure for retry.
+		debug.SetPanicOnFault(true)
 
 		for {
 			select {
