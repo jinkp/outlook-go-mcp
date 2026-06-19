@@ -17,6 +17,7 @@ type mockMailStore struct {
 	searchEmailsErr         error
 }
 
+func (m *mockMailStore) Ping(context.Context) error { return nil }
 func (m *mockMailStore) SearchEmails(_ context.Context, _ domain.SearchEmailsParams) ([]domain.Email, error) {
 	return m.searchEmailsResult, m.searchEmailsErr
 }
@@ -293,6 +294,7 @@ type customMockMailStore struct {
 	searchFn    func(context.Context, domain.SearchEmailsParams) ([]domain.Email, error)
 }
 
+func (m *customMockMailStore) Ping(context.Context) error { return nil }
 func (m *customMockMailStore) SearchEmails(ctx context.Context, params domain.SearchEmailsParams) ([]domain.Email, error) {
 	m.searchCalls = append(m.searchCalls, params)
 	if m.searchFn != nil {

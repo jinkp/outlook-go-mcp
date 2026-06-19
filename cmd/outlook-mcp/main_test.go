@@ -203,6 +203,7 @@ func (f *fakeSession) IsConnected() bool { return true }
 
 type fakeMailStore struct{}
 
+func (fakeMailStore) Ping(context.Context) error { return nil }
 func (fakeMailStore) SearchEmails(context.Context, domain.SearchEmailsParams) ([]domain.Email, error) {
 	return nil, nil
 }
@@ -439,6 +440,7 @@ func TestMCPCmdHasDryRunFlag(t *testing.T) {
 // failingMailStore simulates a mail store that cannot connect to Outlook.
 type failingMailStore struct{}
 
+func (failingMailStore) Ping(context.Context) error { return domain.ErrNotConnected }
 func (failingMailStore) SearchEmails(context.Context, domain.SearchEmailsParams) ([]domain.Email, error) {
 	return nil, domain.ErrNotConnected
 }

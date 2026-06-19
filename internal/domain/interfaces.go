@@ -3,6 +3,9 @@ package domain
 import "context"
 
 type MailStore interface {
+	// Ping validates MAPI connectivity by accessing the Inbox folder name.
+	// Returns nil if Outlook is reachable and the mail store is functional.
+	Ping(ctx context.Context) error
 	SearchEmails(ctx context.Context, params SearchEmailsParams) ([]Email, error)
 	GetEmail(ctx context.Context, id string) (*Email, error)
 	ListAttachments(ctx context.Context, params ListAttachmentsParams) ([]Attachment, error)

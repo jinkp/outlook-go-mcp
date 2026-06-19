@@ -17,6 +17,7 @@ var (
 
 type mailStoreContract struct{}
 
+func (mailStoreContract) Ping(context.Context) error { return nil }
 func (mailStoreContract) SearchEmails(context.Context, SearchEmailsParams) ([]Email, error) {
 	return nil, nil
 }

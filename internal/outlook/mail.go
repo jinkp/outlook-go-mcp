@@ -24,6 +24,35 @@ func mailStoreSession(executor *COMExecutor) OutlookSession {
 	return executor.session
 }
 
+func (s *outlookMailStore) Ping(ctx context.Context) error {
+	return s.submit(ctx, func() error {
+		session, err := s.connectedSession()
+		if err != nil {
+			return err
+		}
+
+		// GetDefaultFolder(olFolderInbox) + read .Name — the lightest possible
+		// MAPI validation. If this fails, the store is not functional.
+		inbox, err := dispatchCall(session.mapi, "GetDefaultFolder", olFolderInbox)
+		if err != nil {
+			return wrapCOMError("ping inbox folder", err)
+		}
+		defer inbox.Release()
+
+		nameVar, err := oleutil.GetProperty(inbox, "Name")
+		if err != nil {
+			return wrapCOMError("ping inbox folder name", err)
+		}
+		defer nameVar.Clear()
+
+		if nameVar.ToString() == "" {
+			return wrapCOMError("ping inbox folder name", fmt.Errorf("empty folder name"))
+		}
+
+		return nil
+	})
+}
+
 func (s *outlookMailStore) SearchEmails(ctx context.Context, params SearchEmailsParams) ([]Email, error) {
 	if err := validateSearchEmailsParams(params); err != nil {
 		return nil, err

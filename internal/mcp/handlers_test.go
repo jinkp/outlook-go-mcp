@@ -777,6 +777,7 @@ type mockMailStore struct {
 	deleteEmailID        string
 }
 
+func (m *mockMailStore) Ping(context.Context) error { return nil }
 func (m *mockMailStore) SearchEmails(context.Context, domain.SearchEmailsParams) ([]domain.Email, error) {
 	return m.searchEmailsResult, m.searchEmailsErr
 }

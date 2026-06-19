@@ -571,11 +571,10 @@ func runDryRun(configPath, logFile string, w io.Writer, deps bootstrapDeps) erro
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Submit a lightweight search to force the lazy COM connection.
-	_, connErr := app.Mail.SearchEmails(ctx, domain.SearchEmailsParams{Query: "subject:__dry_run_ping__"})
-	if connErr != nil {
-		fmt.Fprintf(w, "dry-run FAIL: Outlook connection error: %v\n", connErr)
-		return connErr
+	// Ping forces the lazy COM connection and validates GetDefaultFolder(Inbox).
+	if err := app.Mail.Ping(ctx); err != nil {
+		fmt.Fprintf(w, "dry-run FAIL: Outlook connection error: %v\n", err)
+		return err
 	}
 
 	fmt.Fprintf(w, "dry-run OK\n")
@@ -631,14 +630,14 @@ func newStatusCmd() *cobra.Command {
 
 			mailStore := outlook.NewMailStore(executor)
 
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
-			// Submit a lightweight search to force the lazy COM connection.
-			_, connErr := mailStore.SearchEmails(ctx, domain.SearchEmailsParams{Query: "subject:__status_ping__"})
-			if connErr != nil {
-				fmt.Fprintf(w, "FAIL (%v)\n", connErr)
-				return connErr
+			// Ping forces lazy COM connect + validates GetDefaultFolder(Inbox).Name.
+			// With retry, this will attempt up to 3 reconnections if Exchange is slow.
+			if err := mailStore.Ping(ctx); err != nil {
+				fmt.Fprintf(w, "FAIL (%v)\n", err)
+				return err
 			}
 			fmt.Fprintln(w, "connected")
 

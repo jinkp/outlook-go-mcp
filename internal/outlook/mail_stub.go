@@ -13,6 +13,10 @@ func mailStoreSession(executor *COMExecutor) OutlookSession {
 	return nil
 }
 
+func (s *outlookMailStore) Ping(ctx context.Context) error {
+	return ErrNotConnected
+}
+
 func (s *outlookMailStore) SearchEmails(ctx context.Context, params SearchEmailsParams) ([]Email, error) {
 	if err := validateSearchEmailsParams(params); err != nil {
 		return nil, err
