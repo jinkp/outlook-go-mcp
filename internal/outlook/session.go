@@ -4,7 +4,6 @@ package outlook
 
 import (
 	"fmt"
-	"runtime"
 	"sync"
 
 	"github.com/go-ole/go-ole"
@@ -22,6 +21,83 @@ func NewOutlookSession() OutlookSession {
 	return &outlookSession{}
 }
 
+// PingOutlook performs a full COM lifecycle on the CURRENT OS thread:
+// CoInitializeEx → GetActiveObject/CreateObject → GetNamespace("MAPI")
+// → GetDefaultFolder(Inbox) → read .Name → clean up and return.
+//
+// The caller MUST have called runtime.LockOSThread() before calling this.
+// This function is designed for the _ping subprocess, where COM runs on
+// the main goroutine (which is the main OS thread).
+func PingOutlook() error {
+	if err := ole.CoInitializeEx(0, ole.COINIT_APARTMENTTHREADED); err != nil {
+		return fmt.Errorf("%w: initialize COM: %v", ErrCOMFailure, err)
+	}
+	defer ole.CoUninitialize()
+
+	appUnknown, err := oleutil.GetActiveObject("Outlook.Application")
+	if err != nil {
+		appUnknown, err = oleutil.CreateObject("Outlook.Application")
+		if err != nil {
+			return fmt.Errorf("%w: connect to Outlook: %v", ErrNotConnected, err)
+		}
+	}
+	defer appUnknown.Release()
+
+	disp, err := appUnknown.QueryInterface(ole.IID_IDispatch)
+	if err != nil {
+		return fmt.Errorf("%w: query Outlook dispatch: %v", ErrCOMFailure, err)
+	}
+	defer disp.Release()
+
+	nsVariant, err := oleutil.CallMethod(disp, "GetNamespace", "MAPI")
+	if err != nil {
+		return fmt.Errorf("%w: get MAPI namespace: %v", ErrCOMFailure, err)
+	}
+	ns := nsVariant.ToIDispatch()
+	if ns == nil {
+		return fmt.Errorf("%w: MAPI namespace is nil", ErrCOMFailure)
+	}
+	defer ns.Release()
+
+	inboxVariant, err := oleutil.CallMethod(ns, "GetDefaultFolder", 6) // olFolderInbox
+	if err != nil {
+		return fmt.Errorf("%w: get inbox folder: %v", ErrCOMFailure, err)
+	}
+	inbox := inboxVariant.ToIDispatch()
+	if inbox == nil {
+		return fmt.Errorf("%w: inbox folder is nil", ErrCOMFailure)
+	}
+	defer inbox.Release()
+
+	nameVar, err := oleutil.GetProperty(inbox, "Name")
+	if err != nil {
+		return fmt.Errorf("%w: get inbox name: %v", ErrCOMFailure, err)
+	}
+	defer nameVar.Clear()
+
+	if nameVar.ToString() == "" {
+		return fmt.Errorf("%w: inbox name is empty", ErrCOMFailure)
+	}
+
+	return nil
+}
+
+// InitCOM initializes the COM apartment on the current OS thread. This MUST
+// be called once from the thread that will make all COM calls (i.e. the
+// executor worker goroutine after runtime.LockOSThread). Connect() assumes
+// COM is already initialized.
+func (s *outlookSession) InitCOM() error {
+	if err := ole.CoInitializeEx(0, ole.COINIT_APARTMENTTHREADED); err != nil {
+		return fmt.Errorf("%w: initialize COM apartment: %v", ErrCOMFailure, err)
+	}
+	return nil
+}
+
+// UninitCOM tears down the COM apartment. Called once when the executor stops.
+func (s *outlookSession) UninitCOM() {
+	ole.CoUninitialize()
+}
+
 func (s *outlookSession) Connect() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -30,17 +106,10 @@ func (s *outlookSession) Connect() error {
 		return nil
 	}
 
-	runtime.LockOSThread()
-
-	if err := ole.CoInitializeEx(0, ole.COINIT_APARTMENTTHREADED); err != nil {
-		return fmt.Errorf("%w: initialize COM apartment: %v", ErrCOMFailure, err)
-	}
-
 	appUnknown, err := oleutil.GetActiveObject("Outlook.Application")
 	if err != nil {
 		appUnknown, err = oleutil.CreateObject("Outlook.Application")
 		if err != nil {
-			ole.CoUninitialize()
 			return fmt.Errorf("%w: connect to Outlook application: %v", ErrNotConnected, err)
 		}
 	}
@@ -48,14 +117,12 @@ func (s *outlookSession) Connect() error {
 
 	appDispatch, err := appUnknown.QueryInterface(ole.IID_IDispatch)
 	if err != nil {
-		ole.CoUninitialize()
 		return fmt.Errorf("%w: query Outlook dispatch: %v", ErrCOMFailure, err)
 	}
 
 	mapiVariant, err := oleutil.CallMethod(appDispatch, "GetNamespace", "MAPI")
 	if err != nil {
 		appDispatch.Release()
-		ole.CoUninitialize()
 		return fmt.Errorf("%w: get MAPI namespace: %v", ErrCOMFailure, err)
 	}
 	defer mapiVariant.Clear()
@@ -63,7 +130,6 @@ func (s *outlookSession) Connect() error {
 	mapiDispatch := mapiVariant.ToIDispatch()
 	if mapiDispatch == nil {
 		appDispatch.Release()
-		ole.CoUninitialize()
 		return fmt.Errorf("%w: get MAPI namespace returned nil dispatch", ErrCOMFailure)
 	}
 
@@ -75,14 +141,12 @@ func (s *outlookSession) Connect() error {
 	if err != nil {
 		mapiDispatch.Release()
 		appDispatch.Release()
-		ole.CoUninitialize()
 		return fmt.Errorf("%w: MAPI validation failed (GetDefaultFolder): %v", ErrCOMFailure, err)
 	}
 	inboxDispatch := inboxVariant.ToIDispatch()
 	if inboxDispatch == nil {
 		mapiDispatch.Release()
 		appDispatch.Release()
-		ole.CoUninitialize()
 		return fmt.Errorf("%w: MAPI validation failed: GetDefaultFolder returned nil", ErrCOMFailure)
 	}
 	nameVariant, err := oleutil.GetProperty(inboxDispatch, "Name")
@@ -90,7 +154,6 @@ func (s *outlookSession) Connect() error {
 	if err != nil {
 		mapiDispatch.Release()
 		appDispatch.Release()
-		ole.CoUninitialize()
 		return fmt.Errorf("%w: MAPI validation failed (Inbox.Name): %v", ErrCOMFailure, err)
 	}
 	nameVariant.Clear()
@@ -126,10 +189,8 @@ func (s *outlookSession) Close() error {
 	safeRelease(&s.mapi)
 	safeRelease(&s.ole)
 
-	if s.connected {
-		ole.CoUninitialize()
-	}
-
+	// NOTE: CoUninitialize is NOT called here. The COM apartment lifecycle
+	// is managed by the COMExecutor (InitCOM at start, UninitCOM at stop).
 	s.connected = false
 
 	return nil

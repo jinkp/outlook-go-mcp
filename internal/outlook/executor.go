@@ -59,6 +59,19 @@ func (e *COMExecutor) Start() error {
 		// can recover the panic and return ErrCOMFailure for retry.
 		debug.SetPanicOnFault(true)
 
+		// Initialize the COM apartment on this locked OS thread. All COM calls
+		// (Connect, tool operations, Close) happen on this thread. The apartment
+		// is torn down when the executor stops.
+		if s, ok := e.session.(*outlookSession); ok {
+			if err := s.InitCOM(); err != nil {
+				// Fatal: cannot initialize COM. Close the done channel so
+				// Submit calls return ErrNotConnected immediately.
+				close(e.done)
+				return
+			}
+			defer s.UninitCOM()
+		}
+
 		for {
 			select {
 			case <-e.done:

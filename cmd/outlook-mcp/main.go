@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -672,17 +673,13 @@ func newPingCmd() *cobra.Command {
 		Short:  "Internal: validate Outlook COM connectivity (used by status/dry-run)",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			app, err := bootstrap(configPath, "", productionDeps())
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "bootstrap: %v\n", err)
-				return err
-			}
-			defer app.executor.Stop()
+			// Run COM directly on the main OS thread — not via the executor.
+			// Outlook COM requires STA (Single-Threaded Apartment) on the
+			// thread that called CoInitializeEx.
+			runtime.LockOSThread()
+			defer runtime.UnlockOSThread()
 
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			defer cancel()
-
-			if err := app.Mail.Ping(ctx); err != nil {
+			if err := outlook.PingOutlook(); err != nil {
 				fmt.Fprintf(os.Stderr, "ping: %v\n", err)
 				return err
 			}

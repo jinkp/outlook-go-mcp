@@ -8,6 +8,13 @@ func NewOutlookSession() OutlookSession {
 	return &outlookSession{}
 }
 
+func PingOutlook() error {
+	return ErrNotConnected
+}
+
+func (s *outlookSession) InitCOM() error  { return ErrNotConnected }
+func (s *outlookSession) UninitCOM()      {}
+
 func (s *outlookSession) Connect() error {
 	return ErrNotConnected
 }
