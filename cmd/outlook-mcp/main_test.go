@@ -340,7 +340,7 @@ func TestRunDryRunPrintsOKOnSuccess(t *testing.T) {
 		newServer: func(handlers *mcp.Handlers) mcpServer {
 			return &fakeMCPServer{}
 		},
-	})
+	}, false)
 	if err != nil {
 		t.Fatalf("runDryRun() error = %v", err)
 	}
@@ -358,7 +358,7 @@ func TestRunDryRunReportsBootstrapError(t *testing.T) {
 	missingPath := filepath.Join(t.TempDir(), "missing.yaml")
 
 	var buf bytes.Buffer
-	err := runDryRun(missingPath, "", &buf, productionDeps())
+	err := runDryRun(missingPath, "", &buf, productionDeps(), false)
 	if err == nil {
 		t.Fatal("runDryRun() error = nil, want config error")
 	}
@@ -392,7 +392,7 @@ func TestRunDryRunReportsConnectionError(t *testing.T) {
 		newServer: func(handlers *mcp.Handlers) mcpServer {
 			return &fakeMCPServer{}
 		},
-	})
+	}, false)
 	if err == nil {
 		t.Fatal("runDryRun() error = nil, want connection error")
 	}

@@ -116,6 +116,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newSetupCmd())
 	root.AddCommand(newReportCmd())
 	root.AddCommand(newStatusCmd())
+	root.AddCommand(newPingCmd())
 
 	return root
 }
@@ -149,7 +150,7 @@ func newMCPCmd() *cobra.Command {
 			)
 
 			if dryRun {
-				return runDryRun(configPath, logFile, cmd.OutOrStdout(), productionDeps())
+				return runDryRun(configPath, logFile, cmd.OutOrStdout(), productionDeps(), true)
 			}
 
 			code := run(configPath, logFile, os.Stderr, productionDeps())
@@ -558,9 +559,11 @@ func newReportCmd() *cobra.Command {
 }
 
 // runDryRun performs the full bootstrap (config, logger, executor) and validates
-// connectivity by submitting a no-op job to the COM executor. It prints the
-// result and exits without starting the MCP stdio server.
-func runDryRun(configPath, logFile string, w io.Writer, deps bootstrapDeps) error {
+// connectivity. It prints the result and exits without starting the MCP server.
+//
+// When useSubprocess is true, Outlook validation runs in a child process to
+// isolate COM access violations. Tests pass useSubprocess=false to use fakes.
+func runDryRun(configPath, logFile string, w io.Writer, deps bootstrapDeps, useSubprocess bool) error {
 	app, err := bootstrap(configPath, logFile, deps)
 	if err != nil {
 		fmt.Fprintf(w, "dry-run FAIL: bootstrap error: %v\n", err)
@@ -568,13 +571,19 @@ func runDryRun(configPath, logFile string, w io.Writer, deps bootstrapDeps) erro
 	}
 	defer app.executor.Stop()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	if useSubprocess {
+		if err := pingOutlookSubprocess(configPath); err != nil {
+			fmt.Fprintf(w, "dry-run FAIL: Outlook connection error: %v\n", err)
+			return err
+		}
+	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
 
-	// Ping forces the lazy COM connection and validates GetDefaultFolder(Inbox).
-	if err := app.Mail.Ping(ctx); err != nil {
-		fmt.Fprintf(w, "dry-run FAIL: Outlook connection error: %v\n", err)
-		return err
+		if err := app.Mail.Ping(ctx); err != nil {
+			fmt.Fprintf(w, "dry-run FAIL: Outlook connection error: %v\n", err)
+			return err
+		}
 	}
 
 	fmt.Fprintf(w, "dry-run OK\n")
@@ -617,25 +626,11 @@ func newStatusCmd() *cobra.Command {
 			fmt.Fprintf(w, "  tools:      %d\n", len(mcp.ToolDefinitions()))
 
 			// Step 3: COM executor + Outlook connection
+			// Run validation in a subprocess — COM access violations (0xc0000005)
+			// cannot be caught by Go's recover(), so we isolate them.
 			fmt.Fprintf(w, "  outlook:    ")
 
-			session := outlook.NewOutlookSession()
-			executor := outlook.NewCOMExecutor(session)
-
-			if err := executor.Start(); err != nil {
-				fmt.Fprintf(w, "FAIL (executor: %v)\n", err)
-				return err
-			}
-			defer executor.Stop()
-
-			mailStore := outlook.NewMailStore(executor)
-
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-
-			// Ping forces lazy COM connect + validates GetDefaultFolder(Inbox).Name.
-			// With retry, this will attempt up to 3 reconnections if Exchange is slow.
-			if err := mailStore.Ping(ctx); err != nil {
+			if err := pingOutlookSubprocess(configPath); err != nil {
 				fmt.Fprintf(w, "FAIL (%v)\n", err)
 				return err
 			}
@@ -663,6 +658,67 @@ func newStatusCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&configPath, "config", "config.yaml", "Path to config.yaml")
 	return cmd
+}
+
+// newPingCmd returns the hidden `outlook-mcp _ping` subcommand. It connects
+// to Outlook via COM, validates MAPI with GetDefaultFolder(Inbox), and exits.
+// This runs in a separate process so that COM access violations (0xc0000005)
+// kill only this subprocess, not the caller.
+func newPingCmd() *cobra.Command {
+	var configPath string
+
+	cmd := &cobra.Command{
+		Use:    "_ping",
+		Short:  "Internal: validate Outlook COM connectivity (used by status/dry-run)",
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			app, err := bootstrap(configPath, "", productionDeps())
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "bootstrap: %v\n", err)
+				return err
+			}
+			defer app.executor.Stop()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+
+			if err := app.Mail.Ping(ctx); err != nil {
+				fmt.Fprintf(os.Stderr, "ping: %v\n", err)
+				return err
+			}
+
+			fmt.Fprintln(cmd.OutOrStdout(), "ok")
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&configPath, "config", "config.yaml", "Path to config.yaml")
+	return cmd
+}
+
+// pingOutlookSubprocess runs `outlook-mcp _ping --config <path>` as a child
+// process. If COM causes an access violation (0xc0000005), only the child
+// dies — the parent process survives and reports the error cleanly.
+func pingOutlookSubprocess(configPath string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("cannot find outlook-mcp executable: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, exe, "_ping", "--config", configPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		out := strings.TrimSpace(string(output))
+		if out != "" {
+			return fmt.Errorf("%s", out)
+		}
+		return fmt.Errorf("Outlook COM validation failed (exit %v)", err)
+	}
+
+	return nil
 }
 
 func productionDeps() bootstrapDeps {
